@@ -1,0 +1,26 @@
+version: "3.9"
+services:
+  inventory:
+    image: ${DOCKER_REGISTRY}/${PROJECT_KEY}-inventory-docker-internal-local/inventory:${INVENTORY_TAG:-latest}
+    ports:
+      - "8001:8000"
+  checkout:
+    build: .
+    image: ${DOCKER_REGISTRY}/${PROJECT_KEY}-checkout-docker-internal-local/checkout:${CHECKOUT_TAG:-dev}
+    environment:
+      - INVENTORY_BASE_URL=http://inventory:8000
+      - PAYMENT_SUCCESS_RATIO=1.0
+    ports:
+      - "8002:8000"
+    depends_on:
+      - inventory
+  mock-payment:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock-payment
+    image: ${DOCKER_REGISTRY}/${PROJECT_KEY}-checkout-docker-internal-local/mock-payment:${CHECKOUT_TAG:-dev}
+    environment:
+      - PAYMENT_SUCCESS_RATIO=1.0
+    ports:
+      - "8080:8080"
+

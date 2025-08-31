@@ -1,13 +1,270 @@
 name: CI
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual CI trigger'
+        required: false
+        default: 'Manual testing'
+        type: string
+      verified_only:
+        description: 'Run only the verified-evidence attachment job'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build-test-publish:
+    if: ${{ !inputs.verified_only }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      build_name: ${{ steps.set-build-info.outputs.build_name }}
+      build_number: ${{ steps.set-build-info.outputs.build_number }}
+      app_version: ${{ steps.set-app-version.outputs.app_version }}
+      coverage_percent: ${{ steps.test-coverage.outputs.coverage_percent }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Display manual trigger info
+        run: |
+          echo "🚀 Manual CI trigger initiated"
+          echo "📝 Reason: ${{ inputs.reason || 'Manual testing' }}"
+          echo "👤 Triggered by: ${{ github.actor }}"
+          echo "🕐 Timestamp: $(date -u)"
+
+      - name: Set Build Info (job + run)
+        id: set-build-info
+        run: |
+          BUILD_NAME="${{ github.event.repository.name }}-${{ github.job }}"
+          BUILD_NUMBER="${{ github.run_number }}-${{ github.run_attempt }}"
+          echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
+          echo "build_name=$BUILD_NAME" >> $GITHUB_OUTPUT
+          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Set build variables
+        run: |
+          SERVICE_NAME=checkout
+          IMAGE_TAG=$(echo $GITHUB_SHA | head -c7)
+          REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
+          IMAGE_NAME="${REGISTRY_URL}/${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-docker-internal-local/${SERVICE_NAME}:${IMAGE_TAG}"
+
+          echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
+          APPLICATION_KEY="bookverse-$SERVICE_NAME"
+          echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "REGISTRY_URL=$REGISTRY_URL" >> $GITHUB_ENV
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+
+      - name: Determine SemVer image version
+        id: set-app-version
+        run: |
+          set -euo pipefail
+          SERVICE_NAME=${SERVICE_NAME:-checkout}
+          APPLICATION_KEY="bookverse-$SERVICE_NAME"
+          echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
+          RESP_FILE=$(mktemp)
+          HTTP_STATUS=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "Accept: application/json")
+          if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+            if LATEST_VERSION=$(jq -er '.versions[0].version // empty' "$RESP_FILE" 2>/dev/null); then
+              :
+            else
+              LATEST_VERSION=""
+            fi
+          else
+            LATEST_VERSION=""
+          fi
+          rm -f "$RESP_FILE"
+          if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "null" ]]; then
+            MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
+            MINOR=$(echo "$LATEST_VERSION" | cut -d. -f2)
+            PATCH=$(echo "$LATEST_VERSION" | cut -d. -f3 | cut -d- -f1)
+            APP_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+            echo "⬆️ Latest=$LATEST_VERSION → Next=$APP_VERSION"
+          else
+            APP_VERSION="1.0.0"
+            echo "🆕 No previous version, starting at $APP_VERSION"
+          fi
+          REGISTRY_URL=${REGISTRY_URL:-${{ vars.DOCKER_REGISTRY }}}
+          IMAGE_TAG="$APP_VERSION"
+          IMAGE_NAME="$REGISTRY_URL/${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local/$SERVICE_NAME:$IMAGE_TAG"
+          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
+          echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+
+      - name: Setup JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+          JFROG_CLI_BUILD_NAME: ${{ steps.set-build-info.outputs.build_name }}
+          JFROG_CLI_BUILD_NUMBER: ${{ steps.set-build-info.outputs.build_number }}
+        with:
+          version: latest
+          oidc-provider-name: github-bookverse-checkout
+          disable-job-summary: false
+          disable-auto-build-publish: false
+          disable-auto-evidence-collection: false
+          oidc-audience: jfrog-github
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Configure pip to use JFrog virtual and probe
+        run: |
+          set -euo pipefail
+          jf rt ping || true
+          jf rt curl -XGET "/api/repositories/${{ vars.PROJECT_KEY }}-pypi-virtual" || true
+          jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
+          export PIP_DISABLE_PIP_VERSION_CHECK=1
+          export PIP_NO_INPUT=1
+          python -m pip --version
+          python -m pip debug -v || true
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
+          if ! jf pip install -r requirements.txt; then
+            echo "⚠️ Falling back to public PyPI"
+            pip install -r requirements.txt -i https://pypi.org/simple
+          fi
+
+      - name: Install test dependencies
+        run: |
+          set -euo pipefail
+          jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
+          if ! jf pip install pytest pytest-cov httpx; then
+            pip install -U pytest pytest-cov httpx -i https://pypi.org/simple
+          fi
+
+      - name: Run tests with coverage
+        id: test-coverage
+        run: |
+          set -euo pipefail
+          echo "🧪 Running tests with coverage"
+          pytest --maxfail=1 --disable-warnings -q \
+                 --cov=app --cov-report=xml:coverage.xml --cov-report=html:htmlcov
+          COV=$(python -c "import xml.etree.ElementTree as ET;root=ET.parse('coverage.xml').getroot();rate=float(root.get('line-rate') or 0.0);print(round(rate*100.0,1))")
+          echo "coverage_percent=$COV" >> $GITHUB_OUTPUT
+
+      - name: Install Helm CLI
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+
+      - name: Export OpenAPI schema
+        run: |
+          set -euo pipefail
+          python scripts/export_openapi.py
+
+      - name: Package config bundle
+        run: |
+          set -euo pipefail
+          chmod +x scripts/package_config_bundle.sh
+          scripts/package_config_bundle.sh
+
+      - name: Package Helm chart
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          helm package helm/checkout --version "$APP_VERSION" --destination dist
+
+      - name: Collect artifacts into Build Info directory
+        run: |
+          set -euo pipefail
+          mkdir -p dist/contracts
+          cp contracts/order.created.schema.json dist/contracts/
+          echo "Prepared dist/ with openapi.json, config bundle, contracts, helm chart"
+
+      - name: Upload non-image artifacts (generic + helm) with build info
+        run: |
+          set -euo pipefail
+          # Bind uploads to Build Info
+          jf rt u "dist/openapi.json" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt u "dist/contracts/order.created.schema.json" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/contracts/" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt u "dist/checkout-config.bundle.tar.gz" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          # Upload helm chart to typed Helm repo
+          HELM_CHART_FILE="dist/checkout-${APP_VERSION}.tgz"
+          jf rt u "$HELM_CHART_FILE" "${{ vars.PROJECT_KEY }}-helm-helm-internal-local/checkout/" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+
+      - name: Attach smoke script to Build Info
+        run: |
+          set -euo pipefail
+          jf rt u "scripts/smoke_checkout.py" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/scripts/" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+
+      - name: Docker login, build and push image
+        run: |
+          set -euo pipefail
+          echo ${{ secrets.JFROG_ADMIN_TOKEN }} | docker login "${REGISTRY_URL}" -u yonatan --password-stdin
+          # Build and push API image
+          jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
+          jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt dp "$IMAGE_NAME" "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
+          # Build and push worker image
+          WORKER_IMAGE_NAME="$REGISTRY_URL/${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local/${SERVICE_NAME}-worker:$IMAGE_TAG"
+          jf docker build --pull -t "$WORKER_IMAGE_NAME" -f Dockerfile.worker --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
+          jf docker push "$WORKER_IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt dp "$WORKER_IMAGE_NAME" "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
+          # Build and push migrations image
+          MIG_IMAGE_NAME="$REGISTRY_URL/${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local/${SERVICE_NAME}-migrations:$IMAGE_TAG"
+          jf docker build --pull -t "$MIG_IMAGE_NAME" -f Dockerfile.migrations --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
+          jf docker push "$MIG_IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt dp "$MIG_IMAGE_NAME" "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
+          # Optional: mock-payment image
+          MOCK_IMAGE_NAME="$REGISTRY_URL/${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local/mock-payment:$IMAGE_TAG"
+          jf docker build --pull -t "$MOCK_IMAGE_NAME" -f Dockerfile.mock-payment --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
+          jf docker push "$MOCK_IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt dp "$MOCK_IMAGE_NAME" "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
+
+      - name: Verify Docker image exists in Artifactory
+        run: |
+          set -euo pipefail
+          REPO="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local"
+          IMAGE="$SERVICE_NAME"
+          TAG="$IMAGE_TAG"
+          URL="${{ vars.JFROG_URL }}/artifactory/api/docker/${REPO}/v2/${IMAGE}/manifests/${TAG}"
+          echo "🔎 Verifying image manifest: ${URL}"
+          STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/vnd.docker.distribution.manifest.v2+json" "$URL")
+          echo "HTTP $STATUS"
+          if [[ "$STATUS" != "200" ]]; then
+            echo "❌ Docker image manifest not found for ${REPO}/${IMAGE}:${TAG}" >&2
+            exit 1
+          fi
+          echo "✅ Docker image present in Artifactory"
+          for EXTRA in "${SERVICE_NAME}-worker" "${SERVICE_NAME}-migrations" "mock-payment"; do
+            URL_EXTRA="${{ vars.JFROG_URL }}/artifactory/api/docker/${REPO}/v2/${EXTRA}/manifests/${TAG}"
+            echo "🔎 Verifying image manifest: ${URL_EXTRA}"
+            STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/vnd.docker.distribution.manifest.v2+json" "$URL_EXTRA")
+            echo "HTTP $STATUS"
+            if [[ "$STATUS" != "200" ]]; then
+              echo "❌ Docker image manifest not found for ${REPO}/${EXTRA}:${TAG}" >&2
+              exit 1
+            fi
+            echo "✅ ${EXTRA}:${TAG} present in Artifactory"
+          done
+
+      - name: Publish Build Info
+        run: |
+          jf rt bag "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bce "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bp "$BUILD_NAME" "$BUILD_NUMBER"
+
+  create-application-version:
+    needs: build-test-publish
+    if: ${{ !inputs.verified_only }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -19,39 +276,164 @@ jobs:
 
       - name: Setup JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+          JFROG_CLI_BUILD_NAME: ${{ needs.build-test-publish.outputs.build_name }}
+          JFROG_CLI_BUILD_NUMBER: ${{ needs.build-test-publish.outputs.build_number }}
         with:
           version: latest
+          oidc-provider-name: github-bookverse-checkout
+          disable-job-summary: false
+          disable-auto-build-publish: false
+          disable-auto-evidence-collection: false
+          oidc-audience: jfrog-github
 
-      - name: Configure JFrog CLI
+      - name: Configure JFrog CLI (admin)
         run: |
-          jf c add --interactive=false --url "${{ vars.JFROG_URL }}" --access-token ""
+          jf c add bookverse-admin --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}"
+          jf c use bookverse-admin
+          jf c show
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Create application version
+        run: |
+          set -euo pipefail
+          SERVICE_NAME=checkout
+          APPLICATION_KEY="bookverse-$SERVICE_NAME"
+          APP_VERSION="${{ needs.build-test-publish.outputs.app_version }}"
+          BUILD_NAME="${{ needs.build-test-publish.outputs.build_name }}"
+          BUILD_NUMBER="${{ needs.build-test-publish.outputs.build_number }}"
+          BUILD_INFO_REPO="${{ vars.PROJECT_KEY }}-build-info"
+
+          if [[ -z "$APP_VERSION" ]]; then
+            RESP=$(curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" \
+              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/")
+            LATEST_VERSION=$(echo "$RESP" | jq -r '.versions[0].version // empty')
+            if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "null" ]]; then
+              MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
+              MINOR=$(echo "$LATEST_VERSION" | cut -d. -f2)
+              PATCH=$(echo "$LATEST_VERSION" | cut -d. -f3 | cut -d- -f1)
+              APP_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+            else
+              APP_VERSION="1.0.0"
+            fi
+          fi
+
+          # Build packages list (docker images + non-image artifacts)
+          PACKAGES_JSON=$(cat << JSON
+          [
+            {"name": "$SERVICE_NAME", "repo": "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local", "version": "$APP_VERSION"},
+            {"name": "${SERVICE_NAME}-worker", "repo": "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local", "version": "$APP_VERSION"},
+            {"name": "${SERVICE_NAME}-migrations", "repo": "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local", "version": "$APP_VERSION"},
+            {"name": "mock-payment", "repo": "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local", "version": "$APP_VERSION"},
+            {"name": "openapi.json", "repo": "${{ vars.PROJECT_KEY }}-generic-internal-local", "version": "checkout/${APP_VERSION}/openapi.json"},
+            {"name": "order.created.schema.json", "repo": "${{ vars.PROJECT_KEY }}-generic-internal-local", "version": "checkout/${APP_VERSION}/contracts/order.created.schema.json"},
+            {"name": "checkout-config.bundle.tar.gz", "repo": "${{ vars.PROJECT_KEY }}-generic-internal-local", "version": "checkout/${APP_VERSION}/checkout-config.bundle.tar.gz"},
+            {"name": "helm-checkout", "repo": "${{ vars.PROJECT_KEY }}-helm-helm-internal-local", "version": "checkout-${APP_VERSION}.tgz"}
+          ]
+          JSON
+          )
+
+          APP_VERSION_PAYLOAD=$(cat << EOF
+          {
+            "version": "$APP_VERSION",
+            "sources": {
+              "builds": [
+                {
+                  "name": "$BUILD_NAME",
+                  "number": "$BUILD_NUMBER",
+                  "repository_key": "$BUILD_INFO_REPO",
+                  "include_dependencies": true
+                }
+              ]
+            },
+            "packages": $PACKAGES_JSON
+          }
+          EOF
+          )
+
+          STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/?async=false" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d "$APP_VERSION_PAYLOAD")
+          echo "HTTP $STATUS"
+          if [[ "$STATUS" -lt 200 || "$STATUS" -ge 300 ]]; then
+            echo "❌ Failed to create application version" >&2
+            exit 1
+          fi
+          echo "✅ Application version created: $APPLICATION_KEY@$APP_VERSION"
+
+  attach-verified-only:
+    if: ${{ inputs.verified_only }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve latest application version
+        run: |
+          set -euo pipefail
+          SERVICE_NAME=checkout
+          APPLICATION_KEY="bookverse-$SERVICE_NAME"
+          RESP=$(curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false")
+          APP_VERSION=$(echo "$RESP" | jq -r '.versions[0].version // empty')
+          if [[ -z "$APP_VERSION" ]]; then
+            echo "❌ Could not determine latest application version for $APPLICATION_KEY" >&2
+            exit 1
+          fi
+          echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
+          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
+
+      - name: Setup JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
         with:
-          python-version: '3.11'
+          version: latest
+          oidc-provider-name: github-bookverse-checkout
+          disable-job-summary: true
+          oidc-audience: jfrog-github
 
-      - name: Install deps
+      - name: Attach minimal verified evidence
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
-          python -m pip install --upgrade pip
-          pip install build
+          set -euo pipefail
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > verified.json <<JSON
+          {
+            "verification": {
+              "status": "verified",
+              "verifiedAt": "${NOW_TS}",
+              "note": "Manual verification for demo purposes"
+            }
+          }
+          JSON
+          cat > verified.md <<MD
+          # ✅ Verification Evidence
 
-      - name: Run tests
-        run: |
-          echo "(placeholder) run unit tests"
+          > Status: verified  
+          > Verified At: ${NOW_TS}
 
-      - name: Build python package
-        run: |
-          python -m build
-
-      - name: Build Docker image
-        run: |
-          # IMAGE=${{ vars.PROJECT_KEY }}-${{ github.event.repository.name#bookverse- }}-docker-internal-local/${{ github.event.repository.name#bookverse- }}:$(echo $GITHUB_SHA | head -c7)
-          # docker build -t ${{ vars.DOCKER_REGISTRY }}/$IMAGE .
-
-      - name: Push artifacts (placeholder)
-        run: |
-          echo "(placeholder) publish python dist/* to pypi internal repo via twine or jfrog cli"
-          echo "(placeholder) docker push ${{ vars.DOCKER_REGISTRY }}/..."
+          Minimal verification evidence attached to the latest application version for demonstration.
+          MD
+          jf evd create-evidence \
+            --predicate verified.json \
+            --markdown verified.md \
+            --predicate-type "https://bookverse.demo/evidence/verification/v1" \
+            --release-bundle "$APPLICATION_KEY" \
+            --release-bundle-version "$APP_VERSION" \
+            --project "${{ vars.PROJECT_KEY }}" \
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}"
 
 

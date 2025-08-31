@@ -1,0 +1,7 @@
+FROM alpine:3.19
+WORKDIR /app
+COPY migrations/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+
+

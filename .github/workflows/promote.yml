@@ -4,6 +4,143 @@ on:
   workflow_dispatch:
     inputs:
       target_stage:
+        description: 'Target stage (project stages or PROD)'
+        required: true
+        type: choice
+        options:
+          - bookverse-DEV
+          - bookverse-QA
+          - bookverse-STAGING
+          - PROD
+      app_version:
+        description: 'Application version (SemVer). If empty, use latest.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Do not change artifacts, only print actions'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+        with:
+          version: latest
+          oidc-provider-name: github-bookverse-checkout
+          disable-job-summary: false
+          oidc-audience: jfrog-github
+
+      - name: Configure JFrog CLI (admin)
+        run: |
+          jf c add bookverse-admin --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}"
+          jf c use bookverse-admin
+          jf c show
+
+      - name: Determine application and version
+        id: app
+        run: |
+          set -euo pipefail
+          SERVICE_NAME=checkout
+          APPLICATION_KEY="bookverse-$SERVICE_NAME"
+          TARGET_STAGE='${{ inputs.target_stage }}'
+          APP_VERSION='${{ inputs.app_version }}'
+          if [ -z "$APP_VERSION" ]; then
+            RESP=$(curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" \
+              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false")
+            APP_VERSION=$(echo "$RESP" | jq -r '.versions[0].version // empty')
+          fi
+          if [ -z "$APP_VERSION" ] || [ "$APP_VERSION" = "null" ]; then
+            echo "❌ Could not determine app version for $APPLICATION_KEY" >&2
+            exit 1
+          fi
+          echo "application_key=$APPLICATION_KEY" >> $GITHUB_OUTPUT
+          echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
+          echo "target_stage=$TARGET_STAGE" >> $GITHUB_OUTPUT
+          echo "Resolved: $APPLICATION_KEY@$APP_VERSION → $TARGET_STAGE"
+
+      - name: Promote to non-PROD stage (AppTrust)
+        if: ${{ steps.app.outputs.target_stage != 'PROD' }}
+        run: |
+          set -euo pipefail
+          APPLICATION_KEY='${{ steps.app.outputs.application_key }}'
+          APP_VERSION='${{ steps.app.outputs.app_version }}'
+          TARGET_STAGE='${{ steps.app.outputs.target_stage }}'
+          BODY=$(cat << JSON
+          {"target_stage": "$TARGET_STAGE"}
+          JSON
+          )
+          echo "Promoting $APPLICATION_KEY@$APP_VERSION to $TARGET_STAGE"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "(dry-run) Would POST promote"
+          else
+            STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/promote" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d "$BODY")
+            echo "HTTP $STATUS"
+            if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 300 ]; then
+              echo "❌ Promotion API failed" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Promote to PROD (publish to release repos)
+        if: ${{ steps.app.outputs.target_stage == 'PROD' }}
+        run: |
+          set -euo pipefail
+          SERVICE_NAME=checkout
+          APP_VERSION='${{ steps.app.outputs.app_version }}'
+          SRC_DOCKER_REPO='${{ vars.PROJECT_KEY }}-checkout-docker-internal-local'
+          DST_DOCKER_REPO='${{ vars.PROJECT_KEY }}-checkout-docker-release-local'
+          SRC_HELM_REPO='${{ vars.PROJECT_KEY }}-helm-helm-internal-local'
+          DST_HELM_REPO='${{ vars.PROJECT_KEY }}-helm-helm-release-local'
+          SRC_GENERIC_REPO='${{ vars.PROJECT_KEY }}-generic-internal-local'
+          DST_GENERIC_REPO='${{ vars.PROJECT_KEY }}-generic-release-local'
+
+          echo "Publishing Docker images to release repo..."
+          for IMG in "$SERVICE_NAME" "$SERVICE_NAME-worker" "$SERVICE_NAME-migrations" "mock-payment"; do
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              echo "(dry-run) Would docker-promote $IMG:$APP_VERSION"
+            else
+              jf rt docker-promote --source "$SRC_DOCKER_REPO" --target "$DST_DOCKER_REPO" --image "$IMG" --tag "$APP_VERSION" --copy true
+            fi
+          done
+
+          echo "Publishing Helm chart to release repo..."
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "(dry-run) Would copy helm chart"
+          else
+            jf rt cp "$SRC_HELM_REPO/checkout/checkout-$APP_VERSION.tgz" "$DST_HELM_REPO/checkout/"
+          fi
+
+          echo "Publishing generic artifacts to release repo..."
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "(dry-run) Would copy generic files"
+          else
+            jf rt cp "$SRC_GENERIC_REPO/checkout/$APP_VERSION/*" "$DST_GENERIC_REPO/checkout/$APP_VERSION/" --recursive=true
+          fi
+
+name: Promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_stage:
         description: 'Target stage (QA, STAGING, PROD)'
         required: true
         type: choice

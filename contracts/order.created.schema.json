@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bookverse.demo/schemas/order.created.schema.json",
+  "title": "order.created",
+  "type": "object",
+  "required": ["eventType", "version", "orderId", "userId", "items", "total", "createdAt"],
+  "properties": {
+    "eventType": {"const": "order.created"},
+    "version": {"type": "string", "pattern": "^\\d+$"},
+    "orderId": {"type": "string"},
+    "userId": {"type": "string"},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sku", "qty"],
+        "properties": {
+          "sku": {"type": "string"},
+          "qty": {"type": "integer", "minimum": 1}
+        }
+      },
+      "minItems": 1
+    },
+    "total": {"type": "number", "minimum": 0},
+    "createdAt": {"type": "string", "format": "date-time"}
+  }
+}
+
+
