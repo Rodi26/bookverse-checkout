@@ -154,6 +154,7 @@ jobs:
         id: test-coverage
         run: |
           set -euo pipefail
+          echo "PYTHONPATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
           echo "🧪 Running tests with coverage"
           pytest --maxfail=1 --disable-warnings -q \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=html:htmlcov
