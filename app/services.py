@@ -4,7 +4,7 @@ Business logic for Checkout.
 
 import hashlib
 from decimal import Decimal
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 from sqlalchemy.orm import Session
 
@@ -42,7 +42,7 @@ def calculate_totals(items: List[Tuple[Decimal, int]]) -> Decimal:
     return total.quantize(Decimal("0.01"))
 
 
-def create_order(session: Session, req: CreateOrderRequest, idempotency_key: str | None) -> Tuple[Order, List[OrderItem]]:
+def create_order(session: Session, req: CreateOrderRequest, idempotency_key: Optional[str]) -> Tuple[Order, List[OrderItem]]:
     inv = InventoryClient()
     req_hash = stable_request_hash(req)
     if idempotency_key:
