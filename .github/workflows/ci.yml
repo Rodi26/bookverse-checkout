@@ -152,11 +152,15 @@ jobs:
 
       - name: Run tests with coverage
         id: test-coverage
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          echo "PYTHONPATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+          echo "Repo root: $GITHUB_WORKSPACE"
+          python -c "import sys,os;print('PYTHONPATH=',os.environ.get('PYTHONPATH')); print('CWD=',os.getcwd()); print('sys.path[0]=',sys.path[0])"
+          ls -la
           echo "🧪 Running tests with coverage"
-          pytest --maxfail=1 --disable-warnings -q \
+          python -m pytest --maxfail=1 --disable-warnings -q \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=html:htmlcov
           COV=$(python -c "import xml.etree.ElementTree as ET;root=ET.parse('coverage.xml').getroot();rate=float(root.get('line-rate') or 0.0);print(round(rate*100.0,1))")
           echo "coverage_percent=$COV" >> $GITHUB_OUTPUT
