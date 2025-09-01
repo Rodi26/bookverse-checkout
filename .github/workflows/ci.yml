@@ -194,52 +194,23 @@ jobs:
           cp contracts/order.created.schema.json dist/contracts/
           echo "Prepared dist/ with openapi.json, config bundle, contracts, helm chart"
 
-      - name: Configure JFrog CLI (admin) for uploads
-        run: |
-          jf c add bookverse-admin --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}"
-          jf c use bookverse-admin
-          jf c show
-
-      - name: Ensure target repositories exist (generic + helm)
-        run: |
-          set -euo pipefail
-          PROJECT="${{ vars.PROJECT_KEY }}"
-          GENERIC_REPO="${PROJECT}-generic-internal-local"
-          HELM_REPO="${PROJECT}-helm-helm-internal-local"
-          for REPO in "$GENERIC_REPO" "$HELM_REPO"; do
-            STATUS=$(jf rt curl --project "$PROJECT" -s -o /dev/null -w "%{http_code}" "/api/repositories/${REPO}" || true)
-            if [[ "$STATUS" != "200" ]]; then
-              echo "Creating repository: ${REPO} (status=$STATUS)"
-              if [[ "$REPO" == "$GENERIC_REPO" ]]; then
-                cat > repo.json <<'JSON'
-                {"rclass":"local","packageType":"generic","repoLayoutRef":"simple-default"}
-JSON
-              else
-                cat > repo.json <<'JSON'
-                {"rclass":"local","packageType":"helm","repoLayoutRef":"helm-default"}
-JSON
-              fi
-              jf rt curl --project "$PROJECT" -H "Content-Type: application/json" -XPUT "/api/repositories/${REPO}" -T repo.json | cat
-            else
-              echo "Repository exists: ${REPO}"
-            fi
-          done
+      # Use OIDC-authenticated server from setup-jfrog-cli for uploads
 
       - name: Upload non-image artifacts (generic + helm) with build info
         run: |
           set -euo pipefail
           # Bind uploads to Build Info. Use --flat=true and explicit filenames to avoid including local 'dist/' in target path.
-          jf rt u --server-id-resolve bookverse-admin --server-id-deploy bookverse-admin --project "${{ vars.PROJECT_KEY }}" --flat=true "dist/openapi.json" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/openapi.json" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          jf rt u --server-id-resolve bookverse-admin --server-id-deploy bookverse-admin --project "${{ vars.PROJECT_KEY }}" --flat=true "dist/contracts/order.created.schema.json" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/contracts/order.created.schema.json" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          jf rt u --server-id-resolve bookverse-admin --server-id-deploy bookverse-admin --project "${{ vars.PROJECT_KEY }}" --flat=true "dist/checkout-config.bundle.tar.gz" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/checkout-config.bundle.tar.gz" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt u --project "${{ vars.PROJECT_KEY }}" --flat=true "dist/openapi.json" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/openapi.json" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt u --project "${{ vars.PROJECT_KEY }}" --flat=true "dist/contracts/order.created.schema.json" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/contracts/order.created.schema.json" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt u --project "${{ vars.PROJECT_KEY }}" --flat=true "dist/checkout-config.bundle.tar.gz" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/checkout-config.bundle.tar.gz" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
           # Upload helm chart to typed Helm repo
           HELM_CHART_FILE="dist/checkout-${APP_VERSION}.tgz"
-          jf rt u --server-id-resolve bookverse-admin --server-id-deploy bookverse-admin --project "${{ vars.PROJECT_KEY }}" --flat=true "$HELM_CHART_FILE" "${{ vars.PROJECT_KEY }}-helm-helm-internal-local/checkout/checkout-${APP_VERSION}.tgz" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt u --project "${{ vars.PROJECT_KEY }}" --flat=true "$HELM_CHART_FILE" "${{ vars.PROJECT_KEY }}-helm-helm-internal-local/checkout/checkout-${APP_VERSION}.tgz" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
 
       - name: Attach smoke script to Build Info
         run: |
           set -euo pipefail
-          jf rt u --server-id-resolve bookverse-admin --server-id-deploy bookverse-admin --project "${{ vars.PROJECT_KEY }}" "scripts/smoke_checkout.py" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/scripts/smoke_checkout.py" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt u --project "${{ vars.PROJECT_KEY }}" "scripts/smoke_checkout.py" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/scripts/smoke_checkout.py" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
 
       - name: Docker login, build and push image
         run: |
