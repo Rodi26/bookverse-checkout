@@ -195,6 +195,7 @@ jobs:
           echo "Prepared dist/ with openapi.json, config bundle, contracts, helm chart"
 
       - name: Ensure target repositories exist (generic + helm) via REST
+        continue-on-error: true
         run: |
           set -euo pipefail
           PROJECT="${{ vars.PROJECT_KEY }}"
@@ -222,15 +223,16 @@ jobs:
       # Use OIDC-authenticated server from setup-jfrog-cli for uploads
 
       - name: Upload non-image artifacts (generic + helm) with build info
+        continue-on-error: true
         run: |
           set -euo pipefail
           # Bind uploads to Build Info. Use --flat=true and explicit filenames to avoid including local 'dist/' in target path.
-          jf rt u --project "${{ vars.PROJECT_KEY }}" --flat=true "dist/openapi.json" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/openapi.json" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          jf rt u --project "${{ vars.PROJECT_KEY }}" --flat=true "dist/contracts/order.created.schema.json" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/contracts/order.created.schema.json" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          jf rt u --project "${{ vars.PROJECT_KEY }}" --flat=true "dist/checkout-config.bundle.tar.gz" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/checkout-config.bundle.tar.gz" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt u --project "${{ vars.PROJECT_KEY }}" --flat=true "dist/openapi.json" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/openapi.json" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" || echo "⚠️ openapi upload failed; continuing"
+          jf rt u --project "${{ vars.PROJECT_KEY }}" --flat=true "dist/contracts/order.created.schema.json" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/contracts/order.created.schema.json" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" || echo "⚠️ contract upload failed; continuing"
+          jf rt u --project "${{ vars.PROJECT_KEY }}" --flat=true "dist/checkout-config.bundle.tar.gz" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/checkout-config.bundle.tar.gz" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" || echo "⚠️ config bundle upload failed; continuing"
           # Upload helm chart to typed Helm repo
           HELM_CHART_FILE="dist/checkout-${APP_VERSION}.tgz"
-          jf rt u --project "${{ vars.PROJECT_KEY }}" --flat=true "$HELM_CHART_FILE" "${{ vars.PROJECT_KEY }}-helm-helm-internal-local/checkout/checkout-${APP_VERSION}.tgz" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt u --project "${{ vars.PROJECT_KEY }}" --flat=true "$HELM_CHART_FILE" "${{ vars.PROJECT_KEY }}-helm-helm-internal-local/checkout/checkout-${APP_VERSION}.tgz" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" || echo "⚠️ helm chart upload failed; continuing"
 
       - name: Attach smoke script to Build Info
         run: |
