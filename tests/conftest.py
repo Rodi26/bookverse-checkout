@@ -55,7 +55,9 @@ def client(tmp_path, monkeypatch) -> TestClient:
 
     # reinit DB module and create tables
     import app.database as database
+    import app.models as models
     reload(database)
+    reload(models)
     database.create_all()
 
     from app.main import app
