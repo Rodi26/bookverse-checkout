@@ -194,6 +194,31 @@ jobs:
           cp contracts/order.created.schema.json dist/contracts/
           echo "Prepared dist/ with openapi.json, config bundle, contracts, helm chart"
 
+      - name: Ensure target repositories exist (generic + helm) via REST
+        run: |
+          set -euo pipefail
+          PROJECT="${{ vars.PROJECT_KEY }}"
+          BASE_URL="${{ vars.JFROG_URL }}"
+          TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
+          ensure_repo() {
+            local repo_key="$1"; local pkg_type="$2"; local layout="$3"
+            local status
+            status=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${TOKEN}" "${BASE_URL}/artifactory/api/repositories/${repo_key}")
+            if [[ "$status" != "200" ]]; then
+              echo "Creating repo ${repo_key} (type=${pkg_type})"
+              curl -sS -X PUT \
+                   -H "Authorization: Bearer ${TOKEN}" \
+                   -H "X-JFrog-Project: ${PROJECT}" \
+                   -H "Content-Type: application/json" \
+                   -d "{\"rclass\":\"local\",\"packageType\":\"${pkg_type}\",\"repoLayoutRef\":\"${layout}\"}" \
+                   "${BASE_URL}/artifactory/api/repositories/${repo_key}" | cat
+            else
+              echo "Repo exists: ${repo_key}"
+            fi
+          }
+          ensure_repo "${PROJECT}-generic-internal-local" "generic" "simple-default"
+          ensure_repo "${PROJECT}-helm-helm-internal-local" "helm" "helm-default"
+
       # Use OIDC-authenticated server from setup-jfrog-cli for uploads
 
       - name: Upload non-image artifacts (generic + helm) with build info
