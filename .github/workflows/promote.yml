@@ -32,6 +32,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install prerequisites (jq)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq
+
       - name: Setup JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
         env:
@@ -74,6 +79,10 @@ jobs:
       - name: Initialize AppTrust context
         run: |
           set -euo pipefail
+          # Export variables for current shell and also persist for later steps
+          export APPLICATION_KEY='${{ steps.app.outputs.application_key }}'
+          export APP_VERSION='${{ steps.app.outputs.app_version }}'
+          export TARGET_STAGE='${{ steps.app.outputs.target_stage }}'
           echo "APPLICATION_KEY=${{ steps.app.outputs.application_key }}" >> $GITHUB_ENV
           echo "APP_VERSION=${{ steps.app.outputs.app_version }}" >> $GITHUB_ENV
           echo "TARGET_STAGE=${{ steps.app.outputs.target_stage }}" >> $GITHUB_ENV
@@ -107,35 +116,23 @@ jobs:
           if [[ -n "$RELEASE_STAGE" ]]; then FINAL_STAGE=$(display_stage_for "$RELEASE_STAGE"); else FINAL_STAGE="${STAGES[$((${#STAGES[@]}-1))]}"; fi
           echo "FINAL_STAGE=$FINAL_STAGE" >> $GITHUB_ENV
           STAGES_STR="${STAGES[*]}"; echo "STAGES_STR=$STAGES_STR" >> $GITHUB_ENV
+          TARGET_NAME='${{ steps.app.outputs.target_stage }}'
+          echo "TARGET_NAME=$TARGET_NAME" >> $GITHUB_ENV
 
-      - name: Promote to non-PROD stage (AppTrust)
+      - name: Promote one step if needed (non-PROD)
         if: ${{ steps.app.outputs.target_stage != 'PROD' }}
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          APPLICATION_KEY='${{ steps.app.outputs.application_key }}'
-          APP_VERSION='${{ steps.app.outputs.app_version }}'
-          TARGET_STAGE='${{ steps.app.outputs.target_stage }}'
-          if [ "$TARGET_STAGE" = "PROD" ]; then echo "❌ Non-PROD step invoked with PROD" >&2; exit 1; fi
-          API_STAGE="${{ vars.PROJECT_KEY }}-$TARGET_STAGE"
-          BODY=$(cat << JSON
-          {"target_stage": "$API_STAGE", "promotion_type": "move"}
-          JSON
-          )
-          echo "Promoting $APPLICATION_KEY@$APP_VERSION to $TARGET_STAGE"
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            echo "(dry-run) Would POST promote"
-          else
-            STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
-              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/promote?async=false" \
-              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-              -H "Content-Type: application/json" \
-              -d "$BODY")
-            echo "HTTP $STATUS"
-            if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 300 ]; then
-              echo "❌ Promotion API failed" >&2
-              exit 1
-            fi
-          fi
+          export JFROG_URL='${{ vars.JFROG_URL }}'
+          export PROJECT_KEY='${{ vars.PROJECT_KEY }}'
+          export JFROG_ADMIN_TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
+          source .github/scripts/promote_lib.sh
+          fetch_summary
+          ALLOW_RELEASE=false
+          advance_one_step
+
 
       - name: Decide if STAGING evidence should attach
         id: decide-staging
@@ -222,6 +219,9 @@ jobs:
 
       - name: Release to PROD (AppTrust Release)
         if: ${{ steps.app.outputs.target_stage == 'PROD' }}
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           set -euo pipefail
           export JFROG_URL="${{ vars.JFROG_URL }}"; export PROJECT_KEY="${{ vars.PROJECT_KEY }}"; export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"; source .github/scripts/promote_lib.sh
