@@ -234,10 +234,11 @@ jobs:
 
       # Removed development-time credential probing; use a single, consistent auth method
 
-      - name: Docker login, build and push image
+      - name: Docker login, build and push image (OIDC)
         run: |
           set -euo pipefail
-          jf docker login "${REGISTRY_URL}"
+          SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
+          jf c use "$SERVER_ID" || true
           # Build and push API image
           jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
           jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
