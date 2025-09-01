@@ -219,6 +219,21 @@ jobs:
           }
           ensure_repo "${PROJECT}-generic-internal-local" "generic" "simple-default"
           ensure_repo "${PROJECT}-helm-helm-internal-local" "helm" "helm-default"
+          # Ensure per-service docker repo exists
+          SERVICE_NAME=${SERVICE_NAME:-checkout}
+          DOCKER_REPO="${PROJECT}-${SERVICE_NAME}-docker-internal-local"
+          status=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${TOKEN}" "${BASE_URL}/artifactory/api/repositories/${DOCKER_REPO}")
+          if [[ "$status" != "200" ]]; then
+            echo "Creating docker repo ${DOCKER_REPO}"
+            curl -sS -X PUT \
+                 -H "Authorization: Bearer ${TOKEN}" \
+                 -H "X-JFrog-Project: ${PROJECT}" \
+                 -H "Content-Type: application/json" \
+                 -d '{"rclass":"local","packageType":"docker","dockerApiVersion":"V2","forceNginxAuthentication":true}' \
+                 "${BASE_URL}/artifactory/api/repositories/${DOCKER_REPO}" | cat
+          else
+            echo "Repo exists: ${DOCKER_REPO}"
+          fi
 
       # Use OIDC-authenticated server from setup-jfrog-cli for uploads
 
