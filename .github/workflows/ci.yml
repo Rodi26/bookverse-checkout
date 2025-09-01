@@ -197,13 +197,13 @@ jobs:
       - name: Upload non-image artifacts (generic + helm) with build info
         run: |
           set -euo pipefail
-          # Bind uploads to Build Info
-          jf rt u "dist/openapi.json" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          jf rt u "dist/contracts/order.created.schema.json" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/contracts/" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          jf rt u "dist/checkout-config.bundle.tar.gz" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          # Bind uploads to Build Info. Use --flat=true and explicit filenames to avoid including local 'dist/' in target path.
+          jf rt u --flat=true "dist/openapi.json" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/openapi.json" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt u --flat=true "dist/contracts/order.created.schema.json" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/contracts/order.created.schema.json" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt u --flat=true "dist/checkout-config.bundle.tar.gz" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/checkout-config.bundle.tar.gz" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
           # Upload helm chart to typed Helm repo
           HELM_CHART_FILE="dist/checkout-${APP_VERSION}.tgz"
-          jf rt u "$HELM_CHART_FILE" "${{ vars.PROJECT_KEY }}-helm-helm-internal-local/checkout/" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt u --flat=true "$HELM_CHART_FILE" "${{ vars.PROJECT_KEY }}-helm-helm-internal-local/checkout/checkout-${APP_VERSION}.tgz" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
 
       - name: Attach smoke script to Build Info
         run: |
