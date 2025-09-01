@@ -200,6 +200,31 @@ jobs:
           jf c use bookverse-admin
           jf c show
 
+      - name: Ensure target repositories exist (generic + helm)
+        run: |
+          set -euo pipefail
+          PROJECT="${{ vars.PROJECT_KEY }}"
+          GENERIC_REPO="${PROJECT}-generic-internal-local"
+          HELM_REPO="${PROJECT}-helm-helm-internal-local"
+          for REPO in "$GENERIC_REPO" "$HELM_REPO"; do
+            STATUS=$(jf rt curl --project "$PROJECT" -s -o /dev/null -w "%{http_code}" "/api/repositories/${REPO}" || true)
+            if [[ "$STATUS" != "200" ]]; then
+              echo "Creating repository: ${REPO} (status=$STATUS)"
+              if [[ "$REPO" == "$GENERIC_REPO" ]]; then
+                cat > repo.json <<'JSON'
+                {"rclass":"local","packageType":"generic","repoLayoutRef":"simple-default"}
+JSON
+              else
+                cat > repo.json <<'JSON'
+                {"rclass":"local","packageType":"helm","repoLayoutRef":"helm-default"}
+JSON
+              fi
+              jf rt curl --project "$PROJECT" -H "Content-Type: application/json" -XPUT "/api/repositories/${REPO}" -T repo.json | cat
+            else
+              echo "Repository exists: ${REPO}"
+            fi
+          done
+
       - name: Upload non-image artifacts (generic + helm) with build info
         run: |
           set -euo pipefail
