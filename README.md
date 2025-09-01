@@ -24,7 +24,7 @@ This repository includes a GitHub Actions workflow at `.github/workflows/ci.yml`
 - Builds and pushes a Docker image to JFrog Artifactory
 - Publishes Build Info
 - Creates an AppTrust application version with build sources
-- Supports a minimal `verified_only` path to attach verification evidence
+
 
 ### Required repository variables (Settings → Variables → Repository variables)
 
@@ -50,5 +50,5 @@ This repository includes a GitHub Actions workflow at `.github/workflows/ci.yml`
 
 ### Running the workflow
 
-- Manual trigger: Actions → CI → Run workflow (optionally set `verified_only`)
+- Manual trigger: Actions → CI → Run workflow
 - Later, enable push/PR triggers when ready

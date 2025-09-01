@@ -8,15 +8,9 @@ on:
         required: false
         default: 'Manual testing'
         type: string
-      verified_only:
-        description: 'Run only the verified-evidence attachment job'
-        required: false
-        type: boolean
-        default: false
 
 jobs:
   build-test-publish:
-    if: ${{ !inputs.verified_only }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -193,48 +187,6 @@ jobs:
           mkdir -p dist/contracts
           cp contracts/order.created.schema.json dist/contracts/
           echo "Prepared dist/ with openapi.json, config bundle, contracts, helm chart"
-
-      - name: Ensure target repositories exist (generic + helm) via REST
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          PROJECT="${{ vars.PROJECT_KEY }}"
-          BASE_URL="${{ vars.JFROG_URL }}"
-          TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
-          ensure_repo() {
-            local repo_key="$1"; local pkg_type="$2"; local layout="$3"
-            local status
-            status=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${TOKEN}" "${BASE_URL}/artifactory/api/repositories/${repo_key}")
-            if [[ "$status" != "200" ]]; then
-              echo "Creating repo ${repo_key} (type=${pkg_type})"
-              curl -sS -X PUT \
-                   -H "Authorization: Bearer ${TOKEN}" \
-                   -H "X-JFrog-Project: ${PROJECT}" \
-                   -H "Content-Type: application/json" \
-                   -d "{\"rclass\":\"local\",\"packageType\":\"${pkg_type}\",\"repoLayoutRef\":\"${layout}\"}" \
-                   "${BASE_URL}/artifactory/api/repositories/${repo_key}" | cat
-            else
-              echo "Repo exists: ${repo_key}"
-            fi
-          }
-          ensure_repo "${PROJECT}-generic-internal-local" "generic" "simple-default"
-          ensure_repo "${PROJECT}-helm-helm-internal-local" "helm" "helm-default"
-          # Ensure per-service docker repo exists
-          SERVICE_NAME=${SERVICE_NAME:-checkout}
-          DOCKER_REPO="${PROJECT}-${SERVICE_NAME}-docker-internal-local"
-          status=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${TOKEN}" "${BASE_URL}/artifactory/api/repositories/${DOCKER_REPO}")
-          if [[ "$status" != "200" ]]; then
-            echo "Creating docker repo ${DOCKER_REPO}"
-            curl -sS -X PUT \
-                 -H "Authorization: Bearer ${TOKEN}" \
-                 -H "X-JFrog-Project: ${PROJECT}" \
-                 -H "Content-Type: application/json" \
-                 -d '{"rclass":"local","packageType":"docker","dockerApiVersion":"V2","forceNginxAuthentication":true}' \
-                 "${BASE_URL}/artifactory/api/repositories/${DOCKER_REPO}" | cat
-          else
-            echo "Repo exists: ${DOCKER_REPO}"
-          fi
-
       # Use OIDC-authenticated server from setup-jfrog-cli for uploads
 
       - name: Upload non-image artifacts (generic + helm) with build info
@@ -249,50 +201,12 @@ jobs:
           HELM_CHART_FILE="dist/checkout-${APP_VERSION}.tgz"
           jf rt u --project "${{ vars.PROJECT_KEY }}" --flat=true "$HELM_CHART_FILE" "${{ vars.PROJECT_KEY }}-helm-helm-internal-local/checkout/checkout-${APP_VERSION}.tgz" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" || echo "⚠️ helm chart upload failed; continuing"
 
-      - name: Attach smoke script to Build Info
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          jf rt u --project "${{ vars.PROJECT_KEY }}" "scripts/smoke_checkout.py" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/scripts/smoke_checkout.py" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" || echo "⚠️ smoke script upload failed; continuing"
-
-      - name: Validate Docker registry credentials
-        run: |
-          set -euo pipefail
-          REG="${REGISTRY_URL}"
-          try_login() { local u="$1"; local p="$2"; echo "$p" | docker login "$REG" -u "$u" --password-stdin >/dev/null 2>&1; }
-          # Try with dedicated docker user/password first
-          D_USER="${{ secrets.JFROG_DOCKER_USER }}"; D_PASS="${{ secrets.JFROG_DOCKER_PASSWORD }}"
-          if [ -n "$D_USER" ] && [ -n "$D_PASS" ] && try_login "$D_USER" "$D_PASS"; then
-            echo "✅ Docker registry credentials validated for $D_USER at $REG"; docker logout "$REG" || true; exit 0; fi
-          # Try with access token using admin user (most common)
-          A_PASS="${{ secrets.JFROG_ACCESS_TOKEN }}"; if [ -n "$A_PASS" ] && try_login admin "$A_PASS"; then
-            echo "✅ Docker registry credentials validated for admin (access token) at $REG"; docker logout "$REG" || true; exit 0; fi
-          # Try with access token using fallback username
-          F_USER="${{ vars.DOCKER_USER }}"; [ -z "$F_USER" ] && F_USER="yonatan"
-          if [ -n "$A_PASS" ] && try_login "$F_USER" "$A_PASS"; then
-            echo "✅ Docker registry credentials validated for $F_USER (access token) at $REG"; docker logout "$REG" || true; exit 0; fi
-          # Try with admin token using admin user
-          ADM_PASS="${{ secrets.JFROG_ADMIN_TOKEN }}"; if [ -n "$ADM_PASS" ] && try_login admin "$ADM_PASS"; then
-            echo "✅ Docker registry credentials validated for admin (admin token) at $REG"; docker logout "$REG" || true; exit 0; fi
-          # Try with admin token using fallback username
-          if [ -n "$ADM_PASS" ] && try_login "$F_USER" "$ADM_PASS"; then
-            echo "✅ Docker registry credentials validated for $F_USER (admin token) at $REG"; docker logout "$REG" || true; exit 0; fi
-          echo "::error::All Docker login attempts failed. Set secrets JFROG_DOCKER_USER/JFROG_DOCKER_PASSWORD or ensure ACCESS/ADMIN token works with username 'admin'."; exit 1
+      # Removed development-time credential probing; use a single, consistent auth method
 
       - name: Docker login, build and push image
         run: |
           set -euo pipefail
-          # Attempt multiple credential combos like validation step
-          try_login() { local u="$1"; local p="$2"; echo "$p" | docker login "${REGISTRY_URL}" -u "$u" --password-stdin >/dev/null 2>&1; }
-          D_USER="${{ secrets.JFROG_DOCKER_USER }}"; D_PASS="${{ secrets.JFROG_DOCKER_PASSWORD }}"
-          A_PASS="${{ secrets.JFROG_ACCESS_TOKEN }}"; ADM_PASS="${{ secrets.JFROG_ADMIN_TOKEN }}"
-          F_USER="${{ vars.DOCKER_USER }}"; [ -z "$F_USER" ] && F_USER="yonatan"
-          if [ -n "$D_USER" ] && [ -n "$D_PASS" ] && try_login "$D_USER" "$D_PASS"; then echo "✅ docker login as $D_USER";
-          elif [ -n "$A_PASS" ] && try_login admin "$A_PASS"; then echo "✅ docker login as admin (access token)";
-          elif [ -n "$A_PASS" ] && try_login "$F_USER" "$A_PASS"; then echo "✅ docker login as $F_USER (access token)";
-          elif [ -n "$ADM_PASS" ] && try_login admin "$ADM_PASS"; then echo "✅ docker login as admin (admin token)";
-          elif [ -n "$ADM_PASS" ] && try_login "$F_USER" "$ADM_PASS"; then echo "✅ docker login as $F_USER (admin token)";
-          else echo "❌ docker login failed for all attempts" >&2; exit 1; fi
+          jf docker login "${REGISTRY_URL}"
           # Build and push API image
           jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
           jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
@@ -313,32 +227,7 @@ jobs:
           jf docker push "$MOCK_IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
           jf rt dp --project "${{ vars.PROJECT_KEY }}" "$MOCK_IMAGE_NAME" "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
 
-      - name: Verify Docker image exists in Artifactory
-        run: |
-          set -euo pipefail
-          REPO="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local"
-          IMAGE="$SERVICE_NAME"
-          TAG="$IMAGE_TAG"
-          URL="${{ vars.JFROG_URL }}/artifactory/api/docker/${REPO}/v2/${IMAGE}/manifests/${TAG}"
-          echo "🔎 Verifying image manifest: ${URL}"
-          STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/vnd.docker.distribution.manifest.v2+json" "$URL")
-          echo "HTTP $STATUS"
-          if [[ "$STATUS" != "200" ]]; then
-            echo "❌ Docker image manifest not found for ${REPO}/${IMAGE}:${TAG}" >&2
-            exit 1
-          fi
-          echo "✅ Docker image present in Artifactory"
-          for EXTRA in "${SERVICE_NAME}-worker" "${SERVICE_NAME}-migrations" "mock-payment"; do
-            URL_EXTRA="${{ vars.JFROG_URL }}/artifactory/api/docker/${REPO}/v2/${EXTRA}/manifests/${TAG}"
-            echo "🔎 Verifying image manifest: ${URL_EXTRA}"
-            STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/vnd.docker.distribution.manifest.v2+json" "$URL_EXTRA")
-            echo "HTTP $STATUS"
-            if [[ "$STATUS" != "200" ]]; then
-              echo "❌ Docker image manifest not found for ${REPO}/${EXTRA}:${TAG}" >&2
-              exit 1
-            fi
-            echo "✅ ${EXTRA}:${TAG} present in Artifactory"
-          done
+      # Rely on Build Info as the source of truth; explicit registry checks removed
 
       - name: Publish Build Info
         run: |
@@ -348,7 +237,6 @@ jobs:
 
   create-application-version:
     needs: build-test-publish
-    if: ${{ !inputs.verified_only }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -448,75 +336,3 @@ jobs:
           fi
           rm -f "$RESP_FILE"
           echo "✅ Application version created: $APPLICATION_KEY@$APP_VERSION"
-
-  attach-verified-only:
-    if: ${{ inputs.verified_only }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Resolve latest application version
-        run: |
-          set -euo pipefail
-          SERVICE_NAME=checkout
-          APPLICATION_KEY="bookverse-$SERVICE_NAME"
-          RESP=$(curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false")
-          APP_VERSION=$(echo "$RESP" | jq -r '.versions[0].version // empty')
-          if [[ -z "$APP_VERSION" ]]; then
-            echo "❌ Could not determine latest application version for $APPLICATION_KEY" >&2
-            exit 1
-          fi
-          echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
-          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
-
-      - name: Setup JFrog CLI
-        uses: jfrog/setup-jfrog-cli@v4
-        env:
-          JF_URL: ${{ vars.JFROG_URL }}
-          JF_PROJECT: ${{ vars.PROJECT_KEY }}
-        with:
-          version: latest
-          oidc-provider-name: github-bookverse-checkout
-          disable-job-summary: true
-          oidc-audience: jfrog-github
-
-      - name: Attach minimal verified evidence
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          cat > verified.json <<JSON
-          {
-            "verification": {
-              "status": "verified",
-              "verifiedAt": "${NOW_TS}",
-              "note": "Manual verification for demo purposes"
-            }
-          }
-          JSON
-          cat > verified.md <<MD
-          # ✅ Verification Evidence
-
-          > Status: verified  
-          > Verified At: ${NOW_TS}
-
-          Minimal verification evidence attached to the latest application version for demonstration.
-          MD
-          jf evd create-evidence \
-            --predicate verified.json \
-            --markdown verified.md \
-            --predicate-type "https://bookverse.demo/evidence/verification/v1" \
-            --release-bundle "$APPLICATION_KEY" \
-            --release-bundle-version "$APP_VERSION" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}"
-
-

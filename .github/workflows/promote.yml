@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       target_stage:
-        description: 'Target stage (project stages or PROD)'
+        description: 'Target stage (DEV, QA, STAGING, PROD)'
         required: true
         type: choice
         options:
-          - bookverse-DEV
-          - bookverse-QA
-          - bookverse-STAGING
+          - DEV
+          - QA
+          - STAGING
           - PROD
       app_version:
         description: 'Application version (SemVer). If empty, use latest.'
@@ -71,44 +71,12 @@ jobs:
           echo "target_stage=$TARGET_STAGE" >> $GITHUB_OUTPUT
           echo "Resolved: $APPLICATION_KEY@$APP_VERSION → $TARGET_STAGE"
 
-      - name: Ensure release repositories exist (docker/helm/generic)
-        if: ${{ steps.app.outputs.target_stage == 'PROD' }}
+      - name: Initialize AppTrust context
         run: |
           set -euo pipefail
-          PROJECT="${{ vars.PROJECT_KEY }}"
-          BASE_URL="${{ vars.JFROG_URL }}"
-          TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
-          ensure_repo() {
-            local repo_key="$1"; local pkg_type="$2"; local layout="$3"; local extra_json="$4"
-            local status
-            status=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${TOKEN}" "${BASE_URL}/artifactory/api/repositories/${repo_key}")
-            if [[ "$status" != "200" ]]; then
-              echo "Creating repo ${repo_key} (type=${pkg_type})"
-              local body
-              if [[ -n "$layout" ]]; then
-                body="{\"rclass\":\"local\",\"packageType\":\"${pkg_type}\",\"repoLayoutRef\":\"${layout}\"}"
-              else
-                body="{\"rclass\":\"local\",\"packageType\":\"${pkg_type}\"}"
-              fi
-              # Merge extra_json if provided
-              if [[ -n "$extra_json" ]]; then
-                body=$(jq -cn --argjson a "$body" --argjson b "$extra_json" '$a + $b' 2>/dev/null || echo "$body")
-              fi
-              curl -sS -X PUT \
-                   -H "Authorization: Bearer ${TOKEN}" \
-                   -H "X-JFrog-Project: ${PROJECT}" \
-                   -H "Content-Type: application/json" \
-                   -d "$body" \
-                   "${BASE_URL}/artifactory/api/repositories/${repo_key}" | cat
-            else
-              echo "Repo exists: ${repo_key}"
-            fi
-          }
-          # Docker release repo for this service
-          ensure_repo "${PROJECT}-checkout-docker-release-local" "docker" "" '{"dockerApiVersion":"V2","forceNginxAuthentication":true}'
-          # Helm and Generic release repos
-          ensure_repo "${PROJECT}-helm-helm-release-local" "helm" "helm-default" ''
-          ensure_repo "${PROJECT}-generic-release-local" "generic" "simple-default" ''
+          echo "APPLICATION_KEY=${{ steps.app.outputs.application_key }}" >> $GITHUB_ENV
+          echo "APP_VERSION=${{ steps.app.outputs.app_version }}" >> $GITHUB_ENV
+          echo "TARGET_STAGE=${{ steps.app.outputs.target_stage }}" >> $GITHUB_ENV
 
       - name: Promote to non-PROD stage (AppTrust)
         if: ${{ steps.app.outputs.target_stage != 'PROD' }}
@@ -117,8 +85,10 @@ jobs:
           APPLICATION_KEY='${{ steps.app.outputs.application_key }}'
           APP_VERSION='${{ steps.app.outputs.app_version }}'
           TARGET_STAGE='${{ steps.app.outputs.target_stage }}'
+          if [ "$TARGET_STAGE" = "PROD" ]; then echo "❌ Non-PROD step invoked with PROD" >&2; exit 1; fi
+          API_STAGE="${{ vars.PROJECT_KEY }}-$TARGET_STAGE"
           BODY=$(cat << JSON
-          {"target_stage": "$TARGET_STAGE"}
+          {"target_stage": "$API_STAGE", "promotion_type": "move"}
           JSON
           )
           echo "Promoting $APPLICATION_KEY@$APP_VERSION to $TARGET_STAGE"
@@ -126,9 +96,8 @@ jobs:
             echo "(dry-run) Would POST promote"
           else
             STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
-              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/promote" \
+              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/promote?async=false" \
               -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
               -H "Content-Type: application/json" \
               -d "$BODY")
             echo "HTTP $STATUS"
@@ -138,39 +107,27 @@ jobs:
             fi
           fi
 
-      - name: Promote to PROD (publish to release repos)
+      - name: Promote to PROD (AppTrust Release)
         if: ${{ steps.app.outputs.target_stage == 'PROD' }}
         run: |
           set -euo pipefail
-          SERVICE_NAME=checkout
-          APP_VERSION='${{ steps.app.outputs.app_version }}'
-          SRC_DOCKER_REPO='${{ vars.PROJECT_KEY }}-checkout-docker-internal-local'
-          DST_DOCKER_REPO='${{ vars.PROJECT_KEY }}-checkout-docker-release-local'
-          SRC_HELM_REPO='${{ vars.PROJECT_KEY }}-helm-helm-internal-local'
-          DST_HELM_REPO='${{ vars.PROJECT_KEY }}-helm-helm-release-local'
-          SRC_GENERIC_REPO='${{ vars.PROJECT_KEY }}-generic-internal-local'
-          DST_GENERIC_REPO='${{ vars.PROJECT_KEY }}-generic-release-local'
-
-          echo "Publishing Docker images to release repo..."
-          for IMG in "$SERVICE_NAME" "$SERVICE_NAME-worker" "$SERVICE_NAME-migrations" "mock-payment"; do
-            if [ "${{ inputs.dry_run }}" = "true" ]; then
-              echo "(dry-run) Would docker-promote $IMG:$APP_VERSION"
-            else
-              jf rt docker-promote --source "$SRC_DOCKER_REPO" --target "$DST_DOCKER_REPO" --image "$IMG" --tag "$APP_VERSION" --copy true
+          APP_KEY="${{ steps.app.outputs.application_key }}"
+          APP_VER="${{ steps.app.outputs.app_version }}"
+          echo "Releasing $APP_KEY@$APP_VER to PROD via AppTrust"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "(dry-run) Would POST release"
+          else
+            BODY='{"promotion_type":"copy"}'
+            STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${APP_KEY}/versions/${APP_VER}/release?async=false" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d "$BODY")
+            echo "HTTP $STATUS"
+            if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 300 ]; then
+              echo "❌ Release API failed" >&2
+              exit 1
             fi
-          done
-
-          echo "Publishing Helm chart to release repo..."
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            echo "(dry-run) Would copy helm chart"
-          else
-            jf rt cp "$SRC_HELM_REPO/checkout/checkout-$APP_VERSION.tgz" "$DST_HELM_REPO/checkout/"
-          fi
-
-          echo "Publishing generic artifacts to release repo..."
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            echo "(dry-run) Would copy generic files"
-          else
-            jf rt cp "$SRC_GENERIC_REPO/checkout/$APP_VERSION/*" "$DST_GENERIC_REPO/checkout/$APP_VERSION/" --recursive=true
           fi
 
