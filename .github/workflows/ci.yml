@@ -403,21 +403,6 @@ jobs:
             fi
           fi
 
-          # Build packages list (docker images + non-image artifacts)
-          PACKAGES_JSON=$(cat << JSON
-          [
-            {"name": "$SERVICE_NAME", "repo": "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local", "version": "$APP_VERSION"},
-            {"name": "${SERVICE_NAME}-worker", "repo": "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local", "version": "$APP_VERSION"},
-            {"name": "${SERVICE_NAME}-migrations", "repo": "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local", "version": "$APP_VERSION"},
-            {"name": "mock-payment", "repo": "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local", "version": "$APP_VERSION"},
-            {"name": "openapi.json", "repo": "${{ vars.PROJECT_KEY }}-generic-internal-local", "version": "checkout/${APP_VERSION}/openapi.json"},
-            {"name": "order.created.schema.json", "repo": "${{ vars.PROJECT_KEY }}-generic-internal-local", "version": "checkout/${APP_VERSION}/contracts/order.created.schema.json"},
-            {"name": "checkout-config.bundle.tar.gz", "repo": "${{ vars.PROJECT_KEY }}-generic-internal-local", "version": "checkout/${APP_VERSION}/checkout-config.bundle.tar.gz"},
-            {"name": "helm-checkout", "repo": "${{ vars.PROJECT_KEY }}-helm-helm-internal-local", "version": "checkout-${APP_VERSION}.tgz"}
-          ]
-          JSON
-          )
-
           APP_VERSION_PAYLOAD=$(cat << EOF
           {
             "version": "$APP_VERSION",
@@ -430,8 +415,7 @@ jobs:
                   "include_dependencies": true
                 }
               ]
-            },
-            "packages": $PACKAGES_JSON
+            }
           }
           EOF
           )
