@@ -240,6 +240,23 @@ jobs:
           set -euo pipefail
           jf rt u --project "${{ vars.PROJECT_KEY }}" "scripts/smoke_checkout.py" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/scripts/smoke_checkout.py" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" || echo "⚠️ smoke script upload failed; continuing"
 
+      - name: Validate Docker registry credentials
+        run: |
+          set -euo pipefail
+          REG="${REGISTRY_URL}"
+          USER="${{ secrets.JFROG_DOCKER_USER }}"
+          if [ -z "$USER" ]; then USER="${{ vars.DOCKER_USER }}"; fi
+          if [ -z "$USER" ]; then USER="yonatan"; fi
+          PASS="${{ secrets.JFROG_DOCKER_PASSWORD }}"
+          if [ -z "$PASS" ]; then PASS="${{ secrets.JFROG_ADMIN_TOKEN }}"; fi
+          if [ -z "$PASS" ]; then
+            echo "::error::Missing Docker credentials. Set secrets JFROG_DOCKER_PASSWORD or JFROG_ADMIN_TOKEN (and optionally vars.DOCKER_USER or secrets.JFROG_DOCKER_USER)."
+            exit 1
+          fi
+          echo "$PASS" | docker login "$REG" -u "$USER" --password-stdin
+          echo "✅ Docker registry credentials validated for $USER at $REG"
+          docker logout "$REG" || true
+
       - name: Docker login, build and push image
         run: |
           set -euo pipefail
