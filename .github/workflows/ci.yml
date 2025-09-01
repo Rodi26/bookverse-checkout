@@ -243,7 +243,15 @@ jobs:
       - name: Docker login, build and push image
         run: |
           set -euo pipefail
-          jf rt docker-login --server-id-resolve "${SETUP_JFROG_CLI_SERVER_IDS}" "${REGISTRY_URL}"
+          # Align with inventory CI: prefer dedicated Docker token if present, fallback to admin token
+          DOCKER_PASS="${{ secrets.JFROG_DOCKER_PASSWORD }}"
+          if [ -z "$DOCKER_PASS" ]; then DOCKER_PASS="${{ secrets.JFROG_ADMIN_TOKEN }}"; fi
+          DOCKER_USER="${{ vars.DOCKER_USER }}"
+          if [ -z "$DOCKER_USER" ]; then DOCKER_USER="yonatan"; fi
+          echo "$DOCKER_PASS" | docker login "${REGISTRY_URL}" -u "$DOCKER_USER" --password-stdin || {
+            echo "Primary docker login failed with user=$DOCKER_USER, trying admin..." >&2
+            echo "${{ secrets.JFROG_ADMIN_TOKEN }}" | docker login "${REGISTRY_URL}" -u admin --password-stdin
+          }
           # Build and push API image
           jf docker build --project "${{ vars.PROJECT_KEY }}" --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
           jf docker push --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
