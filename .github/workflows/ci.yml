@@ -25,6 +25,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Configure HTTP debug verbosity
+        run: |
+          # HTTP_DEBUG_LEVEL: none|basic|verbose (default basic)
+          case "${HTTP_DEBUG_LEVEL:-}" in
+            none|basic|verbose)
+              echo "HTTP_DEBUG_LEVEL=${HTTP_DEBUG_LEVEL}" >> $GITHUB_ENV ;;
+            *)
+              echo "HTTP_DEBUG_LEVEL=basic" >> $GITHUB_ENV ;;
+          esac
+
       - name: Install prerequisites (jq)
         run: |
           sudo apt-get update -y
@@ -132,6 +142,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Upgrade pip (ensure <25 for compatibility)
+        run: |
+          python -m pip install --upgrade "pip<25"
 
       - name: Configure pip to use JFrog virtual and probe
         run: |
@@ -367,6 +381,14 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq
+
+      - name: Debug build info contents
+        run: |
+          set -euo pipefail
+          echo "🔎 Fetching build info to confirm artifacts are present"
+          URL="${{ vars.JFROG_URL }}/artifactory/api/build/${{ needs.build-test-publish.outputs.build_name }}/${{ needs.build-test-publish.outputs.build_number }}?project=${{ vars.PROJECT_KEY }}"
+          echo "GET $URL"
+          curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$URL" | jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})'
 
       - name: Setup JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
