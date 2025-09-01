@@ -235,9 +235,10 @@ jobs:
           jf rt u --project "${{ vars.PROJECT_KEY }}" --flat=true "$HELM_CHART_FILE" "${{ vars.PROJECT_KEY }}-helm-helm-internal-local/checkout/checkout-${APP_VERSION}.tgz" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" || echo "⚠️ helm chart upload failed; continuing"
 
       - name: Attach smoke script to Build Info
+        continue-on-error: true
         run: |
           set -euo pipefail
-          jf rt u --project "${{ vars.PROJECT_KEY }}" "scripts/smoke_checkout.py" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/scripts/smoke_checkout.py" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt u --project "${{ vars.PROJECT_KEY }}" "scripts/smoke_checkout.py" "${{ vars.PROJECT_KEY }}-generic-internal-local/checkout/${APP_VERSION}/scripts/smoke_checkout.py" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" || echo "⚠️ smoke script upload failed; continuing"
 
       - name: Docker login, build and push image
         run: |
