@@ -194,6 +194,12 @@ jobs:
           cp contracts/order.created.schema.json dist/contracts/
           echo "Prepared dist/ with openapi.json, config bundle, contracts, helm chart"
 
+      - name: Configure JFrog CLI (admin) for uploads
+        run: |
+          jf c add bookverse-admin --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}"
+          jf c use bookverse-admin
+          jf c show
+
       - name: Upload non-image artifacts (generic + helm) with build info
         run: |
           set -euo pipefail
