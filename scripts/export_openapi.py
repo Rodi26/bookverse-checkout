@@ -1,9 +1,15 @@
 import json
 import os
+import sys
 from pathlib import Path
 
 
 def main() -> None:
+    # Ensure repository root is on sys.path so 'app' package can be imported
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
     # Lazy import to avoid side effects when not needed
     from app.main import app
 
