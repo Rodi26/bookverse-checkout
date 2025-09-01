@@ -363,8 +363,8 @@ jobs:
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
-          JFROG_CLI_BUILD_NAME: ${{ needs.build-test-publish.outputs.build_name }}
-          JFROG_CLI_BUILD_NUMBER: ${{ needs.build-test-publish.outputs.build_number }}
+          JFROG_CLI_BUILD_NAME: ${{ github.event.repository.name }}-build-test-publish
+          JFROG_CLI_BUILD_NUMBER: ${{ github.run_number }}-${{ github.run_attempt }}
         with:
           version: latest
           oidc-provider-name: github-bookverse-checkout
@@ -385,8 +385,9 @@ jobs:
           SERVICE_NAME=checkout
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           APP_VERSION="${{ needs.build-test-publish.outputs.app_version }}"
-          BUILD_NAME="${{ needs.build-test-publish.outputs.build_name }}"
-          BUILD_NUMBER="${{ needs.build-test-publish.outputs.build_number }}"
+          # Recompute build name/number to match build-test-publish job
+          BUILD_NAME="${{ github.event.repository.name }}-build-test-publish"
+          BUILD_NUMBER="${{ github.run_number }}-${{ github.run_attempt }}"
           BUILD_INFO_REPO="${{ vars.PROJECT_KEY }}-build-info"
 
           if [[ -z "$APP_VERSION" ]]; then
@@ -420,7 +421,7 @@ jobs:
           EOF
           )
 
-          STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+          STATUS=$(curl -sS -L -o /dev/null -w "%{http_code}" -X POST \
             "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/?async=false" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
