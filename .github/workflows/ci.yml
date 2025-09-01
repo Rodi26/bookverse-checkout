@@ -248,6 +248,7 @@ jobs:
           if [ -z "$USER" ]; then USER="${{ vars.DOCKER_USER }}"; fi
           if [ -z "$USER" ]; then USER="yonatan"; fi
           PASS="${{ secrets.JFROG_DOCKER_PASSWORD }}"
+          if [ -z "$PASS" ]; then PASS="${{ secrets.JFROG_ACCESS_TOKEN }}"; fi
           if [ -z "$PASS" ]; then PASS="${{ secrets.JFROG_ADMIN_TOKEN }}"; fi
           if [ -z "$PASS" ]; then
             echo "::error::Missing Docker credentials. Set secrets JFROG_DOCKER_PASSWORD or JFROG_ADMIN_TOKEN (and optionally vars.DOCKER_USER or secrets.JFROG_DOCKER_USER)."
@@ -262,8 +263,10 @@ jobs:
           set -euo pipefail
           # Align with inventory CI: prefer dedicated Docker token if present, fallback to admin token
           DOCKER_PASS="${{ secrets.JFROG_DOCKER_PASSWORD }}"
+          if [ -z "$DOCKER_PASS" ]; then DOCKER_PASS="${{ secrets.JFROG_ACCESS_TOKEN }}"; fi
           if [ -z "$DOCKER_PASS" ]; then DOCKER_PASS="${{ secrets.JFROG_ADMIN_TOKEN }}"; fi
-          DOCKER_USER="${{ vars.DOCKER_USER }}"
+          DOCKER_USER="${{ secrets.JFROG_DOCKER_USER }}"
+          if [ -z "$DOCKER_USER" ]; then DOCKER_USER="${{ vars.DOCKER_USER }}"; fi
           if [ -z "$DOCKER_USER" ]; then DOCKER_USER="yonatan"; fi
           echo "$DOCKER_PASS" | docker login "${REGISTRY_URL}" -u "$DOCKER_USER" --password-stdin || {
             echo "Primary docker login failed with user=$DOCKER_USER, trying admin..." >&2
