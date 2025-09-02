@@ -421,6 +421,12 @@ jobs:
           * **Checked At (UTC)**: `${NOW_TS}`
           EOF
 
+      - name: Publish Build Info
+        run: |
+          jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+
       - name: Populate quality gate template and attach (code-quality)
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
@@ -498,11 +504,6 @@ jobs:
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ License compliance evidence attachment failed"
 
-            - name: Publish Build Info
-            run: |
-            jf rt bag "$BUILD_NAME" "$BUILD_NUMBER"
-            jf rt bce "$BUILD_NAME" "$BUILD_NUMBER"
-            jf rt bp "$BUILD_NAME" "$BUILD_NUMBER"
 
   create-application-version:
     needs: build-test-publish
@@ -524,7 +525,7 @@ jobs:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
           JFROG_CLI_BUILD_NAME: ${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}
-          JFROG_CLI_BUILD_NUMBER: ${{ github.run_number }}
+          JFROG_CLI_BUILD_NUMBER: ${{ github.run_number }}-${{ github.run_attempt }}
         with:
           version: latest
           oidc-provider-name: github-bookverse-checkout
