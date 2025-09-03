@@ -7,6 +7,7 @@ on:
         description: 'Target stage (DEV, QA, STAGING, PROD)'
         required: true
         type: choice
+        default: 'PROD'
         options:
           - DEV
           - QA
@@ -16,11 +17,6 @@ on:
         description: 'Application version (SemVer). If empty, use latest.'
         required: false
         type: string
-      dry_run:
-        description: 'Do not change artifacts, only print actions'
-        required: false
-        type: boolean
-        default: false
       DEMO_MODE:
         description: 'Enable demo mode (verbose logs, request tracing)'
         required: false
