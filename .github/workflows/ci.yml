@@ -199,7 +199,7 @@ jobs:
           version: latest
           oidc-provider-name: github-bookverse-checkout
           disable-job-summary: false
-          disable-auto-build-publish: false
+          disable-auto-build-publish: true
           disable-auto-evidence-collection: false
           oidc-audience: jfrog-github
 
@@ -549,7 +549,7 @@ jobs:
           version: latest
           oidc-provider-name: github-bookverse-checkout
           disable-job-summary: false
-          disable-auto-build-publish: false
+          disable-auto-build-publish: true
           disable-auto-evidence-collection: false
           oidc-audience: jfrog-github
 
