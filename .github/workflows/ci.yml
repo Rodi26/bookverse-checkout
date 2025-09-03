@@ -180,14 +180,6 @@ jobs:
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
-
-      - name: Set canonical Build Info env (redundant outputs avoided)
-        run: |
-          BUILD_NAME="${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}"
-          BUILD_NUMBER="${{ github.run_number }}-${{ github.run_attempt }}"
-          echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
-          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
-
       - name: Setup JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
         env:
@@ -261,12 +253,6 @@ jobs:
           jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
           jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
           echo "✅ Built and pushed Docker image (with build-info)"
-
-      - name: Publish Build Info
-        run: |
-          jf rt bag "$BUILD_NAME" "$BUILD_NUMBER"
-          jf rt bce "$BUILD_NAME" "$BUILD_NUMBER"
-          jf rt bp "$BUILD_NAME" "$BUILD_NUMBER"
 
       # Evidence Plan: Package subject – unit-tests (pytest)
       - name: Prepare coverage evidence template (pytest)
@@ -414,18 +400,6 @@ jobs:
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ SAST evidence attachment failed"
 
-      - name: Collect Git information for Build Info
-        run: |
-          jf rt bag "$BUILD_NAME" "$BUILD_NUMBER"
-
-      - name: Collect Environment Variables for Build Info
-        run: |
-          jf rt bce "$BUILD_NAME" "$BUILD_NUMBER"
-
-      - name: Publish Build Info
-        run: |
-          jf rt bp "$BUILD_NAME" "$BUILD_NUMBER"
-
       # Evidence Plan: Build subject – code-quality (SonarQube)
       - name: Prepare Sonar quality gate template (code-quality)
         run: |
@@ -446,6 +420,12 @@ jobs:
           * **Result**: `PASSED`
           * **Checked At (UTC)**: `${NOW_TS}`
           EOF
+
+      - name: Publish Build Info
+        run: |
+          jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
 
       - name: Populate quality gate template and attach (code-quality)
         env:
@@ -524,6 +504,7 @@ jobs:
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ License compliance evidence attachment failed"
 
+
   create-application-version:
     needs: build-test-publish
     runs-on: ubuntu-latest
@@ -544,7 +525,7 @@ jobs:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
           JFROG_CLI_BUILD_NAME: ${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}
-          JFROG_CLI_BUILD_NUMBER: ${{ github.run_number }}
+          JFROG_CLI_BUILD_NUMBER: ${{ github.run_number }}-${{ github.run_attempt }}
         with:
           version: latest
           oidc-provider-name: github-bookverse-checkout
