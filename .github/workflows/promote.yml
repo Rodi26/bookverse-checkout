@@ -13,7 +13,7 @@ on:
           - QA
           - STAGING
           - PROD
-      app_version:
+      application_version:
         description: 'Application version (SemVer). If empty, use latest.'
         required: false
         type: string
@@ -73,7 +73,7 @@ jobs:
           SERVICE_NAME=checkout
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           TARGET_STAGE='${{ inputs.target_stage }}'
-          APP_VERSION='${{ inputs.app_version }}'
+          APP_VERSION='${{ inputs.application_version }}'
           if [ -z "$APP_VERSION" ]; then
             RESP=$(curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" \
               "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false")
@@ -130,9 +130,19 @@ jobs:
           STAGES_STR="${STAGES[*]}"; echo "STAGES_STR=$STAGES_STR" >> $GITHUB_ENV
           TARGET_NAME='${{ steps.app.outputs.target_stage }}'
           echo "TARGET_NAME=$TARGET_NAME" >> $GITHUB_ENV
+          echo "PROMOTED_STAGES=" >> $GITHUB_ENV
+          echo "DID_RELEASE=false" >> $GITHUB_ENV
+          # Export original API stage identifiers for robust mapping in library
+          for s in ${STAGES_STR}; do
+            if [[ "$s" != "PROD" ]]; then
+              api=$(api_stage_for "$s")
+              echo "STAGE_${s}_ORIG=$api" >> $GITHUB_ENV
+            fi
+          done
+          echo "ℹ️ Lifecycle stages: $STAGES_STR"
+          echo "ℹ️ Target: $TARGET_NAME; Final: $FINAL_STAGE"
 
-      - name: Promote one step if needed (non-PROD)
-        if: ${{ steps.app.outputs.target_stage != 'PROD' }}
+      - name: Promote from UNASSIGNED → next
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
@@ -144,6 +154,34 @@ jobs:
           fetch_summary
           ALLOW_RELEASE=false
           advance_one_step
+
+      - name: Promote iteratively up to target (no release)
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          export JFROG_URL='${{ vars.JFROG_URL }}'
+          export PROJECT_KEY='${{ vars.PROJECT_KEY }}'
+          export JFROG_ADMIN_TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
+          source .github/scripts/promote_lib.sh
+          for i in 1 2 3 4; do
+            fetch_summary
+            PREV=$(display_stage_for "${CURRENT_STAGE:-UNASSIGNED}")
+            echo "➡️ Iteration $i begin: stage=$PREV target=$TARGET_NAME final=$FINAL_STAGE stages=[$STAGES_STR]"
+            if [[ "$PREV" == "$TARGET_NAME" ]]; then
+              echo "Reached target stage ($TARGET_NAME); stopping."
+              break
+            fi
+            ALLOW_RELEASE=false
+            advance_one_step
+            fetch_summary
+            CURR=$(display_stage_for "${CURRENT_STAGE:-UNASSIGNED}")
+            echo "➡️ Iteration $i result: $PREV -> $CURR"
+            if [[ "$CURR" == "$PREV" ]]; then
+              echo "No further non-release promotions possible; stopping."
+              break
+            fi
+          done
 
 
       - name: Decide if STAGING evidence should attach
@@ -230,7 +268,6 @@ jobs:
           jf evd create-evidence --predicate change-approval.json --markdown change-approval.md --predicate-type "https://servicenow.com/evidence/change-req/v1" --release-bundle "$APPLICATION_KEY" --release-bundle-version "$APP_VERSION" --project "${{ vars.PROJECT_KEY }}" --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Change approval evidence attachment failed"
 
       - name: Release to PROD (AppTrust Release)
-        if: ${{ steps.app.outputs.target_stage == 'PROD' }}
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
           EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}

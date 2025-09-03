@@ -41,6 +41,22 @@ api_stage_for() {
   fi
 }
 
+# Resolve the exact API stage identifier for a given display name, preserving
+# the original case/prefix as returned by the lifecycle API when available.
+# Falls back to api_stage_for() if no mapping is present.
+resolve_api_stage_for_display() {
+  local display_name="${1:-}"
+  local var_name="STAGE_${display_name}_ORIG"
+  local mapped_value
+  # Expand indirection only if set
+  mapped_value="${!var_name}"
+  if [[ -n "$mapped_value" ]]; then
+    echo "$mapped_value"
+  else
+    api_stage_for "$display_name"
+  fi
+}
+
 # Normalize lifecycle stage names for display (strip project prefix)
 display_stage_for() {
   local s="${1:-}"
@@ -114,7 +130,7 @@ promote_to_stage() {
   local resp_body http_status
   resp_body=$(mktemp)
   local api_stage
-  api_stage=$(api_stage_for "$target_stage_display")
+  api_stage=$(resolve_api_stage_for_display "$target_stage_display")
   echo "🚀 Promoting to ${target_stage_display} via AppTrust"
   http_status=$(apptrust_post \
     "/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/promote?async=false" \
@@ -241,11 +257,13 @@ advance_one_step() {
   local allow_release="${ALLOW_RELEASE:-false}"
   IFS=' ' read -r -a STAGES <<< "${STAGES_STR:-}"
   local current_index=-1
-  if [[ -z "${CURRENT_STAGE:-}" || "${CURRENT_STAGE}" == "UNASSIGNED" ]]; then
+  local display_current
+  display_current=$(display_stage_for "${CURRENT_STAGE:-}")
+  if [[ -z "${CURRENT_STAGE:-}" || "${display_current}" == "UNASSIGNED" ]]; then
     current_index=-1
   else
     local i; for i in "${!STAGES[@]}"; do
-      if [[ "$(api_stage_for "${STAGES[$i]}")" == "$(api_stage_for "${CURRENT_STAGE}")" ]]; then current_index=$i; break; fi
+      if [[ "${STAGES[$i]}" == "${display_current}" ]]; then current_index=$i; break; fi
     done
   fi
   local target_index=-1
