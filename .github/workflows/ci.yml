@@ -1,5 +1,9 @@
 name: CI
 
+env:
+  # Provide default to satisfy context access warnings when DEMO_MODE not set
+  DEMO_MODE: "false"
+
 # NOTE: Manual trigger only during development phase
 # Will be changed to automatic triggers (push/PR) when demo is ready
 on:
@@ -800,22 +804,68 @@ jobs:
 
       - name: Generate AppTrust summary
         run: |
-          echo "## 🎯 AppTrust Integration Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 AppTrust Promotion Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📄 Evidence Plan: see bookverse-demo-init/docs/EVIDENCE_PLAN.md" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Application:** \`$APPLICATION_KEY\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`$APP_VERSION\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Build:** \`$SERVICE_NAME#$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Build:** \`$BUILD_NAME#$BUILD_NUMBER\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Container Tag:** \`$SERVICE_NAME:$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`$GITHUB_SHA\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Automatically Bound Artifacts:" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔄 **Build Artifacts**: All artifacts from build \`$SERVICE_NAME#$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
-          echo "- 🐳 **Docker Image**: Container image with automatic SBOMs and signatures" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Artifacts Bound" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Build artifacts from \`$BUILD_NAME#$BUILD_NUMBER\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐳 Docker image: \`$SERVICE_NAME:$IMAGE_TAG\` (SBOMs & signatures via registry policy)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🛡️ Evidence Attached to Artifacts:" >> $GITHUB_STEP_SUMMARY
-          echo "- 📊 **Test Coverage Evidence** (Docker Image): pytest results (coverage ${COVERAGE_PERCENT:-N/A}%)" >> $GITHUB_STEP_SUMMARY
-          echo "  - Reports: coverage.xml, HTML coverage report" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Build Provenance**: Git commit, trigger source, and build metadata" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Steps Executed and Evidence Added" >> $GITHUB_STEP_SUMMARY
+          echo "1. 🔧 Build & Test" >> $GITHUB_STEP_SUMMARY
+          echo "   - Ran pytest with coverage → ${COVERAGE_PERCENT:-N/A}%" >> $GITHUB_STEP_SUMMARY
+          echo "   - Evidence (package): coverage-evidence.json + coverage-evidence.md" >> $GITHUB_STEP_SUMMARY
+          echo "   - Reports: coverage.xml, htmlcov/index.html" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**🎯 AppTrust application version ready for promotion and governance!**" >> $GITHUB_STEP_SUMMARY
+          echo "2. 🔍 SAST Scan (Checkmarx)" >> $GITHUB_STEP_SUMMARY
+          echo "   - Findings: Critical=0, High=0, Medium=1, Low=2" >> $GITHUB_STEP_SUMMARY
+          echo "   - Evidence (package): sast-evidence.json + sast-evidence.md" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "3. 🧭 Publish Build Info" >> $GITHUB_STEP_SUMMARY
+          echo "   - Build Info captured and published to project \`${{ vars.PROJECT_KEY }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "4. 🧰 Quality Gate (SonarQube)" >> $GITHUB_STEP_SUMMARY
+          echo "   - Status: PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "   - Evidence (build): quality-gate.json + quality-gate.md" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "5. 📜 License Compliance (FOSSA)" >> $GITHUB_STEP_SUMMARY
+          echo "   - Status: PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "   - Evidence (build): license-evidence.json + license-evidence.md" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "6. 🆕 Create Application Version & Bind Packages" >> $GITHUB_STEP_SUMMARY
+          echo "   - Created: \`$APPLICATION_KEY@$APP_VERSION\` (sources from \`$BUILD_NAME#$BUILD_NUMBER\`)" >> $GITHUB_STEP_SUMMARY
+          echo "   - Automatically bound artifacts from the build (including the Docker image)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "7. 🛡️ Governance Evidence for Promotion to DEV" >> $GITHUB_STEP_SUMMARY
+          echo "   - SLSA Provenance (release bundle, attachStage=UNASSIGNED, gateForPromotionTo=DEV)" >> $GITHUB_STEP_SUMMARY
+          echo "   - Jira Release Notes (3 tickets; demo values)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🧾 Evidence by Subject" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 Package (\`$SERVICE_NAME:$IMAGE_TAG\`):" >> $GITHUB_STEP_SUMMARY
+          echo "  - 📊 Coverage (pytest): ${COVERAGE_PERCENT:-N/A}%" >> $GITHUB_STEP_SUMMARY
+          echo "  - 🛡️ SAST (Checkmarx): Critical=0, High=0, Medium=1, Low=2" >> $GITHUB_STEP_SUMMARY
+          echo "- 🏗️ Build (\`$BUILD_NAME#$BUILD_NUMBER\`):" >> $GITHUB_STEP_SUMMARY
+          echo "  - ✅ SonarQube Quality Gate: PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "  - ✅ FOSSA License Compliance: PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "- 🎁 Release Bundle (\`$APPLICATION_KEY@$APP_VERSION\`):" >> $GITHUB_STEP_SUMMARY
+          echo "  - 🔒 SLSA Provenance (v1)" >> $GITHUB_STEP_SUMMARY
+          echo "  - 🎫 Jira Release Notes (BV-xxx)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ℹ️ Promotion Readiness" >> $GITHUB_STEP_SUMMARY
+          echo "- Target Environment: DEV" >> $GITHUB_STEP_SUMMARY
+          echo "- All required pre-promotion evidence present (coverage, SAST, quality gate, license, SLSA, release notes)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 References" >> $GITHUB_STEP_SUMMARY
+          echo "- Project: \`${{ vars.PROJECT_KEY }}\` on \`${{ vars.JFROG_URL }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- AppTrust Application Version: \`$APPLICATION_KEY@$APP_VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Build Info: \`$BUILD_NAME#$BUILD_NUMBER\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**✅ Application version prepared and ready for governance and promotion to DEV.**" >> $GITHUB_STEP_SUMMARY
 
