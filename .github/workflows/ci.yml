@@ -193,7 +193,7 @@ jobs:
           disable-job-summary: false
           disable-auto-build-publish: true
           disable-auto-evidence-collection: false
-          oidc-audience: jfrog-github
+          oidc-audience: ${{ vars.JFROG_URL }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -528,11 +528,11 @@ jobs:
           JFROG_CLI_BUILD_NUMBER: ${{ github.run_number }}-${{ github.run_attempt }}
         with:
           version: latest
-          oidc-provider-name: github-bookverse-checkout
+          oidc-provider-name: bookverse-checkout-github
           disable-job-summary: false
           disable-auto-build-publish: true
           disable-auto-evidence-collection: false
-          oidc-audience: jfrog-github
+          oidc-audience: ${{ vars.JFROG_URL }}
 
       - name: Configure JFrog CLI
         run: |
