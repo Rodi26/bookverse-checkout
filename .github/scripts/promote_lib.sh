@@ -159,9 +159,10 @@ release_version() {
   else
     local service_name
     service_name="${APPLICATION_KEY#${PROJECT_KEY}-}"
-    local repo_docker
+    local repo_docker repo_generic
     repo_docker="${PROJECT_KEY}-${service_name}-docker-release-local"
-    payload=$(printf '{"promotion_type":"move","included_repository_keys":["%s"]}' "$repo_docker")
+    repo_generic="${PROJECT_KEY}-generic-release-local"
+    payload=$(printf '{"promotion_type":"move","included_repository_keys":["%s","%s"]}' "$repo_docker" "$repo_generic")
   fi
   http_status=$(curl -sS -L -o "$resp_body" -w "%{http_code}" -X POST \
     "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" \
