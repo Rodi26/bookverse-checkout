@@ -1,4 +1,4 @@
-name: CI — Test, build API/worker/migrations images, publish build-info, create AppTrust version
+name: CI
 
 env:
   # Provide default to satisfy context access warnings when DEMO_MODE not set
@@ -23,6 +23,7 @@ on:
 
 jobs:
   build-test-publish:
+    name: CI
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -697,9 +698,13 @@ jobs:
         run: |
           set -euo pipefail
           echo "🔎 Fetching build info to confirm artifacts are present"
-          URL="${{ vars.JFROG_URL }}/artifactory/api/build/$BUILD_NAME/$BUILD_NUMBER?project=${{ vars.PROJECT_KEY }}"
+          # URL-encode build name and number to avoid malformed URL errors
+          ENC_BUILD_NAME=$(printf '%s' "$BUILD_NAME" | jq -sRr @uri)
+          ENC_BUILD_NUMBER=$(printf '%s' "$BUILD_NUMBER" | jq -sRr @uri)
+          URL="${{ vars.JFROG_URL }}/artifactory/api/build/${ENC_BUILD_NAME}/${ENC_BUILD_NUMBER}?project=${{ vars.PROJECT_KEY }}"
           echo "GET $URL"
-          curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$URL" | jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})'
+          curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$URL" \
+            | jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})'
 
       - name: Create application version
         run: |
