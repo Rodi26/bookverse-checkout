@@ -3,68 +3,133 @@ name: Promotion Rollback
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version (SemVer) to rollback (omit to use latest promoted)"
-        required: false
+      rollback_to_version:
+        description: 'Rollback to version (SemVer). Required.'
+        required: true
         type: string
-      dry_run:
-        description: "Dry run (no mutations)"
-        required: false
-        default: false
-        type: boolean
-      DEMO_MODE:
-        description: 'Enable demo mode (verbose logs, request tracing)'
-        required: false
-        default: 'false'
+      target_env:
+        description: 'Target environment to rollback in'
+        required: true
+        default: 'DEV'
         type: choice
-        options: ['false', 'true']
-
-concurrency:
-  group: promotion-rollback-${{ github.event.repository.name }}
-  cancel-in-progress: false
+        options: ['DEV', 'QA', 'STAGING', 'PROD']
+      reason:
+        description: 'Reason/notes for rollback'
+        required: false
+        default: 'Demo rollback'
+        type: string
 
 jobs:
   rollback:
-    name: Rollback ${{ github.event.repository.name }} ${{ inputs.version || 'latest-promoted' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Apply DEMO_MODE settings
-        if: ${{ inputs.DEMO_MODE == 'true' || env.DEMO_MODE == 'true' }}
-        run: |
-          echo "🔔 DEMO_MODE enabled"
-          echo "ACTIONS_STEP_DEBUG=true" >> $GITHUB_ENV
-          echo "ACTIONS_RUNNER_DEBUG=true" >> $GITHUB_ENV
-          echo "HTTP_DEBUG_LEVEL=verbose" >> $GITHUB_ENV
-          echo "BASH_XTRACE_ENABLED=1" >> $GITHUB_ENV
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Execute rollback
-        shell: bash
+      - name: Setup JFrog CLI (OIDC)
+        uses: jfrog/setup-jfrog-cli@v4
         env:
-          AT_BASE_URL_SECRET: ${{ secrets.APPTRUST_BASE_URL }}
-          APPTRUST_ACCESS_TOKEN: ${{ secrets.APPTRUST_ACCESS_TOKEN }}
-        run: |
-          set -euo pipefail
-          BASE_URL="${AT_BASE_URL_SECRET}"
-          if [ -z "${BASE_URL}" ]; then
-            echo "Base URL is required via secret 'APPTRUST_BASE_URL'" >&2
-            exit 2
-          fi
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+          JFROG_CLI_BUILD_NAME: ${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}
+          JFROG_CLI_BUILD_NUMBER: ${{ github.run_number }}-${{ github.run_attempt }}
+        with:
+          version: latest
+          oidc-provider-name: bookverse-checkout-github
+          disable-job-summary: false
+          disable-auto-build-publish: true
+          disable-auto-evidence-collection: false
+          oidc-audience: ${{ vars.JFROG_URL }}
 
-          export APPTRUST_BASE_URL="${BASE_URL}"
-          if [ -z "${APPTRUST_ACCESS_TOKEN}" ]; then
-            echo "Missing secret APPTRUST_ACCESS_TOKEN" >&2
-            exit 2
-          fi
+      - name: Export common env
+        env:
+          INPUT_ROLLBACK_TO: ${{ inputs.rollback_to_version }}
+          INPUT_TARGET_ENV: ${{ inputs.target_env }}
+          INPUT_REASON: ${{ inputs.reason }}
+        run: |
+          SERVICE_NAME="$(echo "${{ github.event.repository.name }}" | sed 's/bookverse-//')"
+          APPLICATION_KEY="bookverse-$SERVICE_NAME"
+          TARGET_ENV="${INPUT_TARGET_ENV:-DEV}"
+          ROLLBACK_TO="$INPUT_ROLLBACK_TO"
+          REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
+          DOCKER_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-docker-internal-local"
+          GENERIC_REPO="${{ vars.PROJECT_KEY }}-generic-internal-local"
+          BUILD_NAME="${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}"
+          BUILD_NUMBER="${{ github.run_number }}-${{ github.run_attempt }}"
+          echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
+          echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
+          echo "TARGET_ENV=$TARGET_ENV" >> $GITHUB_ENV
+          echo "ROLLBACK_TO=$ROLLBACK_TO" >> $GITHUB_ENV
+          echo "REGISTRY_URL=$REGISTRY_URL" >> $GITHUB_ENV
+          echo "DOCKER_REPO=$DOCKER_REPO" >> $GITHUB_ENV
+          echo "GENERIC_REPO=$GENERIC_REPO" >> $GITHUB_ENV
+          echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
+          echo "ROLLBACK_REASON=${INPUT_REASON:-}" >> $GITHUB_ENV
+
+      - name: Validate rollback target
+        run: |
+          if [ -z "$ROLLBACK_TO" ]; then echo "Missing rollback_to_version" >&2; exit 1; fi
+
+      - name: Promote rollback version to target env
+        run: |
+          echo "Rolling back $APPLICATION_KEY to $ROLLBACK_TO in $TARGET_ENV"
+          curl -sS -L -X POST \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$ROLLBACK_TO/promote?to=$TARGET_ENV" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "Accept: application/json" --fail
+          echo "✅ Rollback promote completed"
+
+      - name: Attach rollback evidence
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > rollback-evidence.json <<JSON
+          {
+            "rollback": {
+              "to": "$ROLLBACK_TO",
+              "environment": "$TARGET_ENV",
+              "reason": "${ROLLBACK_REASON}",
+              "actor": "${{ github.actor }}",
+              "timestamp": "${NOW_TS}"
+            }
+          }
+          JSON
+          cat > rollback-evidence.md <<EOF
+          # Rollback Evidence
+
+          - Application: \`$APPLICATION_KEY\`
+          - Rolled back to Version: \`$ROLLBACK_TO\`
+          - Environment: \`$TARGET_ENV\`
+          - Actor: \`${{ github.actor }}\`
+          - Timestamp (UTC): \`${NOW_TS}\`
+          - Reason: \`${ROLLBACK_REASON:-N/A}\`
+          EOF
+          jf evd create-evidence \
+            --predicate rollback-evidence.json \
+            --markdown rollback-evidence.md \
+            --predicate-type "https://jfrog.com/evidence/rollback/v1" \
+            --release-bundle "$APPLICATION_KEY" \
+            --release-bundle-version "$ROLLBACK_TO" \
+            --project "${{ vars.PROJECT_KEY }}" \
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" || echo "⚠️ Rollback evidence attach failed"
+
+      - name: Rollback summary
+        run: |
+          echo "## ♻️ Rollback Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Application:** \`$APPLICATION_KEY\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Rolled back to:** \`$ROLLBACK_TO\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`$TARGET_ENV\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Docker Repo:** \`$DOCKER_REPO\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🛡️ Evidence" >> $GITHUB_STEP_SUMMARY
+          echo "- Rollback evidence attached" >> $GITHUB_STEP_SUMMARY
 
           SERVICE_NAME=$(echo "${GITHUB_REPOSITORY#*/}" | sed 's/bookverse-//')
           APP_KEY="bookverse-$SERVICE_NAME"
