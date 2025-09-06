@@ -3,12 +3,12 @@ name: Rollback
 on:
   workflow_dispatch:
     inputs:
-      rollback_to_version:
+      version:
         description: 'Rollback to version (SemVer). Required.'
         required: true
         type: string
-      target_env:
-        description: 'Target environment to rollback in'
+      target_stage:
+        description: 'Target stage to rollback in'
         required: true
         default: 'DEV'
         type: choice
@@ -26,6 +26,9 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: "[Setup] Checkout"
@@ -48,8 +51,8 @@ jobs:
 
       - name: "[Setup] Export env"
         env:
-          INPUT_ROLLBACK_TO: ${{ inputs.rollback_to_version }}
-          INPUT_TARGET_ENV: ${{ inputs.target_env }}
+          INPUT_ROLLBACK_TO: ${{ inputs.version }}
+          INPUT_TARGET_ENV: ${{ inputs.target_stage }}
           INPUT_REASON: ${{ inputs.reason }}
         run: |
           SERVICE_NAME="$(echo "${{ github.event.repository.name }}" | sed 's/bookverse-//')"
@@ -76,7 +79,7 @@ jobs:
         run: |
           if [ -z "$ROLLBACK_TO" ]; then echo "Missing rollback_to_version" >&2; exit 1; fi
 
-      - name: "[Promote] Rollback to env"
+      - name: "[Promote] Rollback to stage"
         run: |
           echo "Rolling back $APPLICATION_KEY to $ROLLBACK_TO in $TARGET_ENV"
           curl -sS -L -X POST \
@@ -135,7 +138,7 @@ jobs:
           SERVICE_NAME=$(echo "${GITHUB_REPOSITORY#*/}" | sed 's/bookverse-//')
           APP_KEY="bookverse-$SERVICE_NAME"
 
-          TARGET_VERSION="${{ inputs.rollback_to_version || '' }}"
+          TARGET_VERSION="${{ inputs.version || '' }}"
           if [ -z "$TARGET_VERSION" ]; then
             echo "🔎 Resolving latest promoted version for $APP_KEY"
             RESP_FILE=$(mktemp)
