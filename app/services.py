@@ -1,5 +1,11 @@
 """
-Business logic for Checkout.
+Checkout service business logic.
+
+This module implements idempotent order creation, including:
+- Stable request hashing used with an idempotency key table
+- Validation against current inventory quantities
+- Inventory adjustments with compensation in case of failures
+- Outbox event emission for `order.created`
 """
 
 import hashlib
@@ -14,7 +20,11 @@ from .inventory_client import InventoryClient, InventoryError
 
 
 def stable_request_hash(data: CreateOrderRequest) -> str:
-    # JSON-stable hash based on sorted fields
+    """Compute a stable hash for an order request.
+
+    Sorting items by `(bookId, qty, unitPrice)` ensures consistent hashing
+    regardless of input order.
+    """
     raw = f"{data.userId}|" + ",".join(
         f"{i.bookId}:{i.qty}:{i.unitPrice}" for i in sorted(data.items, key=lambda x: (x.bookId, x.qty, x.unitPrice))
     )
@@ -22,6 +32,13 @@ def stable_request_hash(data: CreateOrderRequest) -> str:
 
 
 def upsert_idempotency(session: Session, key: str, request_hash: str) -> Tuple[str, str]:
+    """Insert or validate an idempotency key.
+
+    Returns a tuple of (decision, order_id):
+    - ("proceed", new_order_id) when the key is new and can proceed
+    - ("replay", existing_order_id) when the same request repeats
+    - ("conflict", existing_order_id) when the key is reused with different payload
+    """
     entry = session.get(IdempotencyKey, key)
     if entry is None:
         # create a stub order id early
@@ -36,6 +53,7 @@ def upsert_idempotency(session: Session, key: str, request_hash: str) -> Tuple[s
 
 
 def calculate_totals(items: List[Tuple[Decimal, int]]) -> Decimal:
+    """Sum line totals and quantize to cents."""
     total = Decimal("0")
     for price, qty in items:
         total += (price * qty)
@@ -43,6 +61,14 @@ def calculate_totals(items: List[Tuple[Decimal, int]]) -> Decimal:
 
 
 def create_order(session: Session, req: CreateOrderRequest, idempotency_key: Optional[str]) -> Tuple[Order, List[OrderItem]]:
+    """Create an order with optional idempotency.
+
+    Steps:
+    1) Enforce idempotency if key is provided
+    2) Validate request and stock availability
+    3) Adjust inventory and persist items; emit outbox event
+    4) Compensate inventory and cancel order on failure
+    """
     inv = InventoryClient()
     req_hash = stable_request_hash(req)
     if idempotency_key:

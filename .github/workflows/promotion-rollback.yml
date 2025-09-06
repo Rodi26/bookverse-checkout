@@ -134,7 +134,7 @@ jobs:
           SERVICE_NAME=$(echo "${GITHUB_REPOSITORY#*/}" | sed 's/bookverse-//')
           APP_KEY="bookverse-$SERVICE_NAME"
 
-          TARGET_VERSION="${{ inputs.version || '' }}"
+          TARGET_VERSION="${{ inputs.rollback_to_version || '' }}"
           if [ -z "$TARGET_VERSION" ]; then
             echo "🔎 Resolving latest promoted version for $APP_KEY"
             RESP_FILE=$(mktemp)
@@ -154,7 +154,7 @@ jobs:
           fi
 
           DRY_FLAG=""
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "${{ inputs.dry_run || 'false' }}" = "true" ]; then
             DRY_FLAG="--dry-run"
           fi
 

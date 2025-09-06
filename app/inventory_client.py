@@ -1,5 +1,8 @@
 """
-HTTP client for Inventory service.
+Synchronous HTTP client for the Inventory service.
+
+The client implements basic retry with exponential backoff for resiliency
+and provides convenience methods used by the checkout flow.
 """
 
 import time
@@ -15,12 +18,14 @@ class InventoryError(Exception):
 
 class InventoryClient:
     def __init__(self) -> None:
+        """Initialize client from application config."""
         cfg = load_config()
         self.base = cfg.inventory_base_url.rstrip("/")
         self.timeout = httpx.Timeout(cfg.request_timeout_seconds)
         self.retry_attempts = cfg.retry_attempts
 
     def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
+        """Issue a request with simple retry on network/5xx errors."""
         last_exc = None
         for attempt in range(self.retry_attempts + 1):
             try:
@@ -38,6 +43,7 @@ class InventoryClient:
         raise InventoryError("Unexpected client flow")
 
     def get_inventory(self, book_id: str) -> Dict[str, Any]:
+        """Return inventory details for a book or empty dict if missing."""
         url = f"{self.base}/api/v1/inventory/{book_id}"
         resp = self._request("GET", url)
         if resp.status_code == 404:
@@ -46,6 +52,10 @@ class InventoryClient:
         return resp.json()
 
     def adjust(self, book_id: str, change: int, notes: str = "") -> Dict[str, Any]:
+        """Adjust inventory quantity by the given delta.
+
+        Positive values increase stock; negative values decrease stock.
+        """
         url = f"{self.base}/api/v1/inventory/adjust?book_id={book_id}"
         payload = {"quantity_change": change, "notes": notes}
         resp = self._request("POST", url, json=payload)

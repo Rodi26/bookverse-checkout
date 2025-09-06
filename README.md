@@ -1,6 +1,8 @@
 # BookVerse Checkout Service
 
-Minimal FastAPI service for BookVerse.
+Minimal FastAPI service for BookVerse. Implements idempotent order creation,
+stock validation against `bookverse-inventory`, and outbox pattern for
+`order.created` domain events.
 
 ## Local run
 
@@ -16,15 +18,20 @@ docker build -t bookverse-checkout:dev .
 docker run -p 8000:8000 bookverse-checkout:dev
 ```
 
+## API
+
+- POST `/orders` — create order (supports `Idempotency-Key` header)
+- GET `/orders/{order_id}` — fetch order by id
+
 ## CI/CD
 
 This repository includes a GitHub Actions workflow at `.github/workflows/ci.yml` that:
 
 - Runs tests with coverage
-- Builds and pushes a Docker image to JFrog Artifactory
-- Publishes Build Info
+- Builds and pushes one API image plus worker/migrations images
+- Publishes Build Info and uploads OpenAPI and contract artifacts
 - Creates an AppTrust application version with build sources
-
+- Attaches coverage/SAST/quality/license evidence
 
 ### Required repository variables (Settings → Variables → Repository variables)
 

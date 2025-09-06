@@ -1,5 +1,13 @@
 """
-API routes for Checkout.
+Checkout API routes.
+
+This module exposes a minimal order API for the demo checkout service.
+
+Endpoints
+---------
+- POST `/orders` — Create an order with optional idempotency, validates stock
+  and adjusts inventory on success; enqueues an `order.created` outbox event.
+- GET `/orders/{order_id}` — Retrieve an order by identifier.
 """
 
 from fastapi import APIRouter, Header, HTTPException
@@ -17,6 +25,30 @@ router = APIRouter()
 
 @router.post("/orders", response_model=OrderResponse, status_code=201)
 def create_order_endpoint(payload: CreateOrderRequest, idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key")):
+    """Create a new order.
+
+    Parameters
+    ----------
+    payload: CreateOrderRequest
+        The order request containing `userId` and a list of items
+        with `bookId`, `qty`, and `unitPrice`.
+    idempotency_key: Optional[str]
+        Optional idempotency key provided via the `Idempotency-Key` header.
+        When provided, duplicate requests with the same request hash will
+        return the originally created order; requests with a different hash
+        will be rejected with conflict.
+
+    Returns
+    -------
+    OrderResponse
+        The created order with computed totals and line items.
+
+    Raises
+    ------
+    HTTPException
+        409 if idempotency conflict or insufficient stock, 400 for validation
+        errors, 502 for upstream inventory errors.
+    """
     try:
         with session_scope() as session:
             order, items = create_order(session, payload, idempotency_key)
@@ -34,6 +66,23 @@ def create_order_endpoint(payload: CreateOrderRequest, idempotency_key: Optional
 
 @router.get("/orders/{order_id}", response_model=OrderResponse)
 def get_order(order_id: str):
+    """Return an order by identifier.
+
+    Parameters
+    ----------
+    order_id: str
+        The order identifier to fetch.
+
+    Returns
+    -------
+    OrderResponse
+        The order and its items if found.
+
+    Raises
+    ------
+    HTTPException
+        404 if the order is not found.
+    """
     with session_scope() as session:
         from typing import Optional as _Optional  # local alias to avoid top-level changes
         order: _Optional[Order] = session.get(Order, order_id)
@@ -43,6 +92,7 @@ def get_order(order_id: str):
 
 
 def _to_response(order: Order, items) -> OrderResponse:
+    """Convert internal ORM models to API response schema."""
     return OrderResponse(
         orderId=order.id,
         status=order.status,

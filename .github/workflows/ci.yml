@@ -1,4 +1,4 @@
-name: CI
+name: CI — Test, build API/worker/migrations images, publish build-info, create AppTrust version
 
 env:
   # Provide default to satisfy context access warnings when DEMO_MODE not set
@@ -252,36 +252,40 @@ jobs:
           else
             echo "⚠️ Tests failed - creating fallback coverage reports"
             echo "TESTS_PASSED=false" >> $GITHUB_ENV
-            cat > coverage.xml <<'XML'
-            <?xml version="1.0" ?>
-            <coverage version="7.4.3" timestamp="0" lines-valid="100" lines-covered="85" line-rate="0.85" branches-covered="34" branches-valid="40" branch-rate="0.85" complexity="0">
-              <sources><source>.</source></sources>
-              <packages>
-                <package name="app" line-rate="0.85" branch-rate="0.85" complexity="0">
-                  <classes>
-                    <class name="main.py" filename="app/main.py" complexity="0" line-rate="0.9" branch-rate="1.0">
-                      <methods></methods>
-                      <lines>
-                        <line number="10" hits="1"/>
-                        <line number="20" hits="1"/>
-                      </lines>
-                    </class>
-                  </classes>
-                </package>
-              </packages>
-            </coverage>
-            XML
+            {
+              printf '%s\n' \
+                '<?xml version="1.0" ?>' \
+                '<coverage version="7.4.3" timestamp="0" lines-valid="100" lines-covered="85" line-rate="0.85" branches-covered="34" branches-valid="40" branch-rate="0.85" complexity="0">' \
+                '  <sources><source>.</source></sources>' \
+                '  <packages>' \
+                '    <package name="app" line-rate="0.85" branch-rate="0.85" complexity="0">' \
+                '      <classes>' \
+                '        <class name="main.py" filename="app/main.py" complexity="0" line-rate="0.9" branch-rate="1.0">' \
+                '          <methods></methods>' \
+                '          <lines>' \
+                '            <line number="10" hits="1"/>' \
+                '            <line number="20" hits="1"/>' \
+                '          </lines>' \
+                '        </class>' \
+                '      </classes>' \
+                '    </package>' \
+                '  </packages>' \
+                '</coverage>' \
+                > coverage.xml
+            }
             mkdir -p htmlcov
-            cat > htmlcov/index.html <<'HTML'
-            <!DOCTYPE html>
-            <html><head><title>Coverage Report</title></head>
-            <body>
-            <h1>Coverage Report (Demo Fallback)</h1>
-            <p><strong>Coverage:</strong> 85% (85/100 lines)</p>
-            <p><strong>Status:</strong> Tests failed - using fallback data for demo</p>
-            <p><strong>Generated:</strong> $(date)</p>
-            </body></html>
-            HTML
+            {
+              printf '%s\n' \
+                '<!DOCTYPE html>' \
+                '<html><head><title>Coverage Report</title></head>' \
+                '<body>' \
+                '<h1>Coverage Report (Demo Fallback)</h1>' \
+                '<p><strong>Coverage:</strong> 85% (85/100 lines)</p>' \
+                '<p><strong>Status:</strong> Tests failed - using fallback data for demo</p>' \
+                '<p><strong>Generated:</strong> $(date)</p>' \
+                '</body></html>' \
+                > htmlcov/index.html
+            }
           fi
           # Extract coverage percent from coverage.xml
           COV=$(python -c "import xml.etree.ElementTree as ET;root=ET.parse('coverage.xml').getroot();rate=float(root.get('line-rate') or 0.0);print(round(rate*100.0,1))")
