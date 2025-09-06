@@ -26,15 +26,18 @@ on:
 
 jobs:
   promote:
+    name: Promote
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
+    env:
+      DEMO_MODE: "false"
     steps:
-      - name: Checkout
+      - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
-      - name: Apply DEMO_MODE settings
+      - name: "[Setup] DEMO_MODE"
         if: ${{ inputs.DEMO_MODE == 'true' || env.DEMO_MODE == 'true' }}
         run: |
           echo "🔔 DEMO_MODE enabled"
@@ -44,12 +47,12 @@ jobs:
           echo "BASH_XTRACE_ENABLED=1" >> $GITHUB_ENV
           echo "LOG_LEVEL=DEBUG" >> $GITHUB_ENV
 
-      - name: Install prerequisites (jq)
+      - name: "[Setup] Prereqs (jq)"
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq
 
-      - name: Setup JFrog CLI
+      - name: "[Setup] JFrog CLI"
         uses: jfrog/setup-jfrog-cli@v4
         env:
           JF_URL: ${{ vars.JFROG_URL }}
@@ -60,13 +63,13 @@ jobs:
           disable-job-summary: false
           oidc-audience: ${{ vars.JFROG_URL }}
 
-      - name: Configure JFrog CLI (admin)
+      - name: "[Setup] JFrog CLI (admin)"
         run: |
           jf c add bookverse-admin --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}"
           jf c use bookverse-admin
           jf c show
 
-      - name: Determine application and version
+      - name: "[Resolve] App & version"
         id: app
         run: |
           set -euo pipefail
@@ -88,7 +91,7 @@ jobs:
           echo "target_stage=$TARGET_STAGE" >> $GITHUB_OUTPUT
           echo "Resolved: $APPLICATION_KEY@$APP_VERSION → $TARGET_STAGE"
 
-      - name: Initialize AppTrust context
+      - name: "[Setup] AppTrust context"
         run: |
           set -euo pipefail
           # Export variables for current shell and also persist for later steps
@@ -142,7 +145,7 @@ jobs:
           echo "ℹ️ Lifecycle stages: $STAGES_STR"
           echo "ℹ️ Target: $TARGET_NAME; Final: $FINAL_STAGE"
 
-      - name: Promote from UNASSIGNED → next
+      - name: "[Promote] UNASSIGNED → next"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
@@ -155,7 +158,7 @@ jobs:
           ALLOW_RELEASE=false
           advance_one_step
 
-      - name: Promote iteratively up to target (no release)
+      - name: "[Promote] Iterate to target (no release)"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
@@ -184,7 +187,7 @@ jobs:
           done
 
 
-      - name: Decide if STAGING evidence should attach
+      - name: "[Evidence] Decide STAGING"
         id: decide-staging
         run: |
           set -euo pipefail
@@ -193,7 +196,7 @@ jobs:
           if [[ "$CS" == *"-STAGING" || "$CS" == "STAGING" ]]; then attach="true"; fi
           echo "attach=$attach" >> $GITHUB_OUTPUT
 
-      - name: Prepare STAGING evidence templates (IaC, Pentest, Change Approval)
+      - name: "[Evidence] Prepare STAGING templates"
         if: ${{ steps.decide-staging.outputs.attach == 'true' }}
         run: |
           set -euo pipefail
@@ -239,7 +242,7 @@ jobs:
           > Managerial approval for release promotion from STAGING to PROD.
           EOF
 
-      - name: Populate STAGING templates and attach evidence
+      - name: "[Evidence] Attach STAGING"
         if: ${{ steps.decide-staging.outputs.attach == 'true' }}
         run: |
           set -euo pipefail
@@ -267,7 +270,7 @@ jobs:
           envsubst < change-approval.template.md > change-approval.md
           jf evd create-evidence --predicate change-approval.json --markdown change-approval.md --predicate-type "https://servicenow.com/evidence/change-req/v1" --release-bundle "$APPLICATION_KEY" --release-bundle-version "$APP_VERSION" --project "${{ vars.PROJECT_KEY }}" --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Change approval evidence attachment failed"
 
-      - name: Release to PROD (AppTrust Release)
+      - name: "[Release] PROD"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
           EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
@@ -282,7 +285,7 @@ jobs:
             echo "Skipping release: current stage is $(display_stage_for "${CURRENT_STAGE:-UNASSIGNED}")"
           fi
 
-      - name: Generate promotion summary
+      - name: "[Summary] Promotion"
         run: |
           echo "## 🚀 AppTrust Promotion Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

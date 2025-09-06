@@ -1,4 +1,4 @@
-name: Promotion Rollback
+name: Rollback
 
 on:
   workflow_dispatch:
@@ -21,16 +21,17 @@ on:
 
 jobs:
   rollback:
+    name: Rollback
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
 
     steps:
-      - name: Checkout
+      - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
-      - name: Setup JFrog CLI (OIDC)
+      - name: "[Setup] JFrog CLI (OIDC)"
         uses: jfrog/setup-jfrog-cli@v4
         env:
           JF_URL: ${{ vars.JFROG_URL }}
@@ -45,7 +46,7 @@ jobs:
           disable-auto-evidence-collection: false
           oidc-audience: ${{ vars.JFROG_URL }}
 
-      - name: Export common env
+      - name: "[Setup] Export env"
         env:
           INPUT_ROLLBACK_TO: ${{ inputs.rollback_to_version }}
           INPUT_TARGET_ENV: ${{ inputs.target_env }}
@@ -71,11 +72,11 @@ jobs:
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
           echo "ROLLBACK_REASON=${INPUT_REASON:-}" >> $GITHUB_ENV
 
-      - name: Validate rollback target
+      - name: "[Validate] Target"
         run: |
           if [ -z "$ROLLBACK_TO" ]; then echo "Missing rollback_to_version" >&2; exit 1; fi
 
-      - name: Promote rollback version to target env
+      - name: "[Promote] Rollback to env"
         run: |
           echo "Rolling back $APPLICATION_KEY to $ROLLBACK_TO in $TARGET_ENV"
           curl -sS -L -X POST \
@@ -84,7 +85,7 @@ jobs:
             -H "Accept: application/json" --fail
           echo "✅ Rollback promote completed"
 
-      - name: Attach rollback evidence
+      - name: "[Evidence] Attach rollback"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
@@ -119,7 +120,7 @@ jobs:
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" || echo "⚠️ Rollback evidence attach failed"
 
-      - name: Rollback summary
+      - name: "[Summary] Rollback"
         run: |
           echo "## ♻️ Rollback Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -154,9 +155,6 @@ jobs:
           fi
 
           DRY_FLAG=""
-          if [ "${{ inputs.dry_run || 'false' }}" = "true" ]; then
-            DRY_FLAG="--dry-run"
-          fi
 
           python3 .github/scripts/apptrust_rollback.py \
             --app "$APP_KEY" \
