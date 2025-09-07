@@ -177,7 +177,7 @@ jobs:
           if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "null" ]]; then
             MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
             MINOR=$(echo "$LATEST_VERSION" | cut -d. -f2)
-            PATCH=$(echo "$LATEST_VERSION" | cut -d. -f3 | cut -d- -f1)
+            PATCH=$(echo "$LATEST_VERSION" | cut -d- -f1)
             APP_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
             echo "⬆️ Latest=$LATEST_VERSION → Next=$APP_VERSION"
           else
@@ -193,6 +193,24 @@ jobs:
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
+
+      - name: "[Setup] Per-image SemVer start (deterministic random)"
+        run: |
+          set -euo pipefail
+          # Derive a deterministic pseudo-random starting patch for each image name to simulate drift
+          # Range: 1..9 for patch; minor fixed 0; major fixed 1
+          seed=$(printf '%s' "$SERVICE_NAME" | sha256sum | cut -c1-8 | tr -d '\n' || true)
+          if [[ -z "$seed" ]]; then seed="1"; fi
+          base_patch=$(( (0x${seed:0:2} % 9) + 1 ))
+          base_minor=$(( (0x${seed:2:2} % 3) ))
+          BASE_IMAGE_VERSION="1.${base_minor}.${base_patch}"
+          # If first run for this repo, and APP_VERSION equals 1.0.0, prefer BASE_IMAGE_VERSION
+          if [[ "$APP_VERSION" == "1.0.0" ]]; then
+            IMAGE_TAG="$BASE_IMAGE_VERSION"
+            IMAGE_NAME="$REGISTRY_URL/${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local/$SERVICE_NAME:$IMAGE_TAG"
+            echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+            echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          fi
       - name: "[Setup] JFrog CLI"
         uses: jfrog/setup-jfrog-cli@v4
         env:
@@ -299,9 +317,29 @@ jobs:
           # Use JFrog CLI to authenticate pushes without requiring docker login
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID" || true
+          # Compute per-image next SemVer tag by listing existing tags and bumping patch
+          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
+          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local"
+          API_IMAGE_NAME="$SERVICE_NAME"
+          TAGS_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/$REPO_KEY/v2/$API_IMAGE_NAME/tags/list"
+          RESP=$(mktemp)
+          code=$(curl -sS -L -o "$RESP" -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$TAGS_URL" || echo 000)
+          if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
+            LAST=$(jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)' "$RESP")
+          else
+            LAST=""
+          fi
+          rm -f "$RESP"
+          if [[ -n "$LAST" ]]; then IFS='.' read -r MA MI PA <<<"$LAST"; PA=$((PA+1)); API_TAG="$MA.$MI.$PA"; else API_TAG="$IMAGE_TAG"; fi
+          echo "API_TAG=$API_TAG" >> $GITHUB_ENV
+          IMAGE_NAME="$REGISTRY_URL/$REPO_KEY/$API_IMAGE_NAME:$API_TAG"
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "$DOCKER_REPO" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
+          # TEMP: Artifactory < 7.33.3 doesn't support 'jf docker push'.
+          # Re-enable the original push line below once Artifactory is upgraded.
+          # jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          # Using deprecated fallback below: 'jf rt docker-push' (alias: 'jf rt dp').
+          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
           echo "✅ Built and pushed Docker image (with build-info)"
 
       - name: "[Artifacts] OpenAPI spec"
@@ -325,19 +363,53 @@ jobs:
       - name: "[Build] Worker image"
         run: |
           set -euo pipefail
-          WORKER_IMAGE="$REGISTRY_URL/$DOCKER_REPO/$SERVICE_NAME-worker:$IMAGE_TAG"
+          # Compute per-image next SemVer tag for worker
+          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
+          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local"
+          WORKER_NAME="$SERVICE_NAME-worker"
+          TAGS_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/$REPO_KEY/v2/$WORKER_NAME/tags/list"
+          RESP=$(mktemp); code=$(curl -sS -L -o "$RESP" -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$TAGS_URL" || echo 000)
+          if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
+            LAST=$(jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)' "$RESP")
+          else
+            LAST=""
+          fi
+          rm -f "$RESP"
+          if [[ -n "$LAST" ]]; then IFS='.' read -r MA MI PA <<<"$LAST"; PA=$((PA+1)); WORKER_TAG="$MA.$MI.$PA"; else WORKER_TAG="$IMAGE_TAG"; fi
+          echo "WORKER_TAG=$WORKER_TAG" >> $GITHUB_ENV
+          WORKER_IMAGE="$REGISTRY_URL/$DOCKER_REPO/$WORKER_NAME:$WORKER_TAG"
           jf docker build -f Dockerfile.worker -t "$WORKER_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          jf docker push "$WORKER_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$WORKER_IMAGE" "$DOCKER_REPO" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
+          # TEMP: Artifactory < 7.33.3 doesn't support 'jf docker push'.
+          # Re-enable the original push line below once Artifactory is upgraded.
+          # jf docker push "$WORKER_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          # Using deprecated fallback below: 'jf rt docker-push' (alias: 'jf rt dp').
+          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$WORKER_IMAGE" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
           echo "✅ Worker image built and pushed: $WORKER_IMAGE"
 
       - name: "[Build] Migrations image"
         run: |
           set -euo pipefail
-          MIGRATIONS_IMAGE="$REGISTRY_URL/$DOCKER_REPO/$SERVICE_NAME-migrations:$IMAGE_TAG"
+          # Compute per-image next SemVer tag for migrations
+          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
+          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local"
+          MIGR_NAME="$SERVICE_NAME-migrations"
+          TAGS_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/$REPO_KEY/v2/$MIGR_NAME/tags/list"
+          RESP=$(mktemp); code=$(curl -sS -L -o "$RESP" -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$TAGS_URL" || echo 000)
+          if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
+            LAST=$(jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)' "$RESP")
+          else
+            LAST=""
+          fi
+          rm -f "$RESP"
+          if [[ -n "$LAST" ]]; then IFS='.' read -r MA MI PA <<<"$LAST"; PA=$((PA+1)); MIGR_TAG="$MA.$MI.$PA"; else MIGR_TAG="$IMAGE_TAG"; fi
+          echo "MIGR_TAG=$MIGR_TAG" >> $GITHUB_ENV
+          MIGRATIONS_IMAGE="$REGISTRY_URL/$DOCKER_REPO/$MIGR_NAME:$MIGR_TAG"
           jf docker build -f Dockerfile.migrations -t "$MIGRATIONS_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          jf docker push "$MIGRATIONS_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$MIGRATIONS_IMAGE" "$DOCKER_REPO" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
+          # TEMP: Artifactory < 7.33.3 doesn't support 'jf docker push'.
+          # Re-enable the original push line below once Artifactory is upgraded.
+          # jf docker push "$MIGRATIONS_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          # Using deprecated fallback below: 'jf rt docker-push' (alias: 'jf rt dp').
+          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$MIGRATIONS_IMAGE" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
           echo "✅ Migrations image built and pushed: $MIGRATIONS_IMAGE"
 
       # Evidence Plan: Package subject – unit-tests (pytest)
@@ -407,14 +479,14 @@ jobs:
           export ANALYSIS_TEXT="Coverage is ${COVERAGE_PERCENT:-0}% with pytest. Aim to keep above 85%. Add tests for critical paths as needed."
           # Render the template
           envsubst < coverage-evidence.template.md > coverage-evidence.md
-          # Attach evidence
+          # Attach evidence for API image tag
           jf evd create-evidence \
             --predicate coverage-evidence.json \
             --markdown coverage-evidence.md \
             --predicate-type "https://pytest.org/evidence/results/v1" \
             --package-name "$SERVICE_NAME" \
             --package-repo-name "$DOCKER_REPO" \
-            --package-version "$IMAGE_TAG" \
+            --package-version "${API_TAG:-$IMAGE_TAG}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Coverage evidence attachment failed"
@@ -425,7 +497,7 @@ jobs:
             --predicate-type "https://pytest.org/evidence/results/v1" \
             --package-name "$SERVICE_NAME-worker" \
             --package-repo-name "$DOCKER_REPO" \
-            --package-version "$IMAGE_TAG" \
+            --package-version "${WORKER_TAG:-$IMAGE_TAG}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Worker coverage evidence attachment failed"
@@ -492,7 +564,7 @@ jobs:
             --predicate-type "https://checkmarx.com/evidence/sast/v1.1" \
             --package-name "$SERVICE_NAME" \
             --package-repo-name "$DOCKER_REPO" \
-            --package-version "$IMAGE_TAG" \
+            --package-version "${API_TAG:-$IMAGE_TAG}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ SAST evidence attachment failed"
@@ -524,7 +596,7 @@ jobs:
             --predicate-type "https://checkmarx.com/evidence/sast/v1.1" \
             --package-name "$SERVICE_NAME-worker" \
             --package-repo-name "$DOCKER_REPO" \
-            --package-version "$IMAGE_TAG" \
+            --package-version "${WORKER_TAG:-$IMAGE_TAG}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Worker SAST evidence attachment failed"
