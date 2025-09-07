@@ -92,7 +92,7 @@ jobs:
           REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
           IMAGE_NAME="${REGISTRY_URL}/${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local/${SERVICE_NAME}:${IMAGE_TAG}"
           DOCKER_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
-          GENERIC_REPO="${{ vars.PROJECT_KEY }}-generic-internal-local"
+          GENERIC_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-generic-nonprod-local"
           BUILD_NAME="${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}"
           BUILD_NUMBER="${{ github.run_number }}-${{ github.run_attempt }}"
 
@@ -1116,8 +1116,8 @@ jobs:
           echo "- 🐳 Docker image: \`$SERVICE_NAME:$IMAGE_TAG\` (SBOMs & signatures via registry policy)" >> $GITHUB_STEP_SUMMARY
           echo "- 🐳 Worker image: \`$SERVICE_NAME-worker:$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
           echo "- 🐳 Migrations image: \`$SERVICE_NAME-migrations:$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
-          echo "- 📜 OpenAPI spec: \`${{ vars.PROJECT_KEY }}-generic-internal-local/$SERVICE_NAME/openapi/$APP_VERSION/openapi.json\`" >> $GITHUB_STEP_SUMMARY
-          echo "- 📄 Event schema (order.created): \`${{ vars.PROJECT_KEY }}-generic-internal-local/$SERVICE_NAME/contracts.order.created/$APP_VERSION/order.created.schema.json\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 📜 OpenAPI spec: \`${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-generic-nonprod-local/$SERVICE_NAME/openapi/$APP_VERSION/openapi.json\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 📄 Event schema (order.created): \`${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-generic-nonprod-local/$SERVICE_NAME/contracts/order.created/$APP_VERSION/order.created.schema.json\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### ✅ Steps Executed and Evidence Added" >> $GITHUB_STEP_SUMMARY
           echo "1. 🔧 Build & Test" >> $GITHUB_STEP_SUMMARY
