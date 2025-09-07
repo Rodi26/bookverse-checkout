@@ -160,8 +160,8 @@ release_version() {
     local service_name
     service_name="${APPLICATION_KEY#${PROJECT_KEY}-}"
     local repo_docker repo_generic
-    repo_docker="${PROJECT_KEY}-${service_name}-docker-release-local"
-    repo_generic="${PROJECT_KEY}-generic-release-local"
+    repo_docker="${PROJECT_KEY}-${service_name}-internal-docker-release-local"
+    repo_generic="${PROJECT_KEY}-${service_name}-internal-generic-release-local"
     payload=$(printf '{"promotion_type":"move","included_repository_keys":["%s","%s"]}' "$repo_docker" "$repo_generic")
   fi
   http_status=$(curl -sS -L -o "$resp_body" -w "%{http_code}" -X POST \

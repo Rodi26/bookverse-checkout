@@ -54,7 +54,7 @@ This repository includes a GitHub Actions workflow at `.github/workflows/ci.yml`
 
 ### Image naming
 
-- `${JFROG_URL}/artifactory/${PROJECT_KEY}-checkout-docker-internal-local/checkout:<semver>`
+- `${JFROG_URL}/artifactory/${PROJECT_KEY}-checkout-internal-docker-nonprod-local/checkout:<semver>`
 
 ### Running the workflow
 
