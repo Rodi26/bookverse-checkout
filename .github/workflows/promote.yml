@@ -281,8 +281,8 @@ jobs:
           PROJECT='${{ vars.PROJECT_KEY }}'
           # Derive service name from APPLICATION_KEY set earlier
           SERVICE_NAME="${APPLICATION_KEY#${PROJECT}-}"
-          DOCKER_REPO="${PROJECT}-${SERVICE_NAME}-docker-release-local"
-          GENERIC_REPO="${PROJECT}-generic-release-local"
+          DOCKER_REPO="${PROJECT}-${SERVICE_NAME}-internal-docker-release-local"
+          GENERIC_REPO="${PROJECT}-${SERVICE_NAME}-internal-generic-release-local"
           echo "Ensuring repos exist: $DOCKER_REPO, $GENERIC_REPO"
           repo_exists() {
             local repo_key="$1"
@@ -383,8 +383,8 @@ jobs:
           # Derive service name from APPLICATION_KEY (e.g., bookverse-checkout -> checkout)
           if [[ -n "${APPLICATION_KEY:-}" && -n "${PROJECT_KEY:-}" ]]; then
             svc_name="${APPLICATION_KEY#${PROJECT_KEY}-}"
-            docker_repo="${PROJECT_KEY}-${svc_name}-docker-release-local"
-            generic_repo="${PROJECT_KEY}-generic-release-local"
+            docker_repo="${PROJECT_KEY}-${svc_name}-internal-docker-release-local"
+            generic_repo="${PROJECT_KEY}-${svc_name}-internal-generic-release-local"
             export RELEASE_INCLUDED_REPO_KEYS=$(printf '["%s","%s"]' "$docker_repo" "$generic_repo")
           fi
           if [[ "$(display_stage_for "${CURRENT_STAGE:-}")" == "STAGING" ]]; then

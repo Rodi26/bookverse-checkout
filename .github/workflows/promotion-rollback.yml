@@ -60,8 +60,8 @@ jobs:
           TARGET_ENV="${INPUT_TARGET_ENV:-DEV}"
           ROLLBACK_TO="$INPUT_ROLLBACK_TO"
           REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
-          DOCKER_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-docker-internal-local"
-          GENERIC_REPO="${{ vars.PROJECT_KEY }}-generic-internal-local"
+          DOCKER_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
+          GENERIC_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-generic-nonprod-local"
           BUILD_NAME="${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}"
           BUILD_NUMBER="${{ github.run_number }}-${{ github.run_attempt }}"
           echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
