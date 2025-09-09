@@ -56,6 +56,22 @@ This repository includes a GitHub Actions workflow at `.github/workflows/ci.yml`
 
 - `${JFROG_URL}/artifactory/${PROJECT_KEY}-checkout-internal-docker-nonprod-local/checkout:<semver>`
 
+### Mandatory OIDC application binding (.jfrog/config.yml)
+
+This repository must include a committed, non-sensitive `.jfrog/config.yml` declaring the AppTrust application key. This is mandatory for package binding.
+
+- During an OIDC-authenticated CI session, JFrog CLI reads the key so packages uploaded by the workflow are automatically bound to the correct AppTrust application.
+- Contains no secrets and must be versioned. If the key changes, commit the update.
+
+Path: `bookverse-checkout/.jfrog/config.yml`
+
+Example:
+
+```yaml
+application:
+  key: "bookverse-checkout"
+```
+
 ### Running the workflow
 
 - Manual trigger: Actions → CI → Run workflow
