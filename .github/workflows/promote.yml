@@ -23,6 +23,46 @@ on:
         default: 'false'
         type: choice
         options: ['false', 'true']
+      service_name:
+        description: 'Service name override (optional)'
+        required: false
+        type: string
+      oidc_provider_name:
+        description: 'OIDC provider name for jfrog/setup-jfrog-cli'
+        required: false
+        type: string
+        default: 'bookverse-checkout-github'
+      evidence_key_alias:
+        description: 'Evidence key alias (optional)'
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      target_stage:
+        description: 'Target stage (DEV, QA, STAGING, PROD)'
+        required: true
+        type: string
+      application_version:
+        description: 'Application version (SemVer). If empty, use latest.'
+        required: false
+        type: string
+      DEMO_MODE:
+        description: 'Enable demo mode (verbose logs, request tracing)'
+        required: false
+        type: string
+        default: 'false'
+      service_name:
+        description: 'Service name (e.g., inventory, checkout, recommendations, web)'
+        required: false
+        type: string
+      oidc_provider_name:
+        description: 'OIDC provider name for jfrog/setup-jfrog-cli'
+        required: false
+        type: string
+      evidence_key_alias:
+        description: 'Evidence key alias (if server-side aliasing is used)'
+        required: false
+        type: string
 
 jobs:
   promote:
@@ -35,7 +75,7 @@ jobs:
       contents: read
       id-token: write
     env:
-      DEMO_MODE: "false"
+      DEMO_MODE: "${{ inputs.DEMO_MODE }}"
     steps:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
@@ -62,7 +102,7 @@ jobs:
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
         with:
           version: latest
-          oidc-provider-name: bookverse-checkout-github
+          oidc-provider-name: ${{ inputs.oidc_provider_name }}
           disable-job-summary: false
           oidc-audience: ${{ vars.JFROG_URL }}
 
@@ -76,10 +116,14 @@ jobs:
         id: app
         run: |
           set -euo pipefail
-          SERVICE_NAME=checkout
+          if [[ -n "${{ inputs.service_name }}" ]]; then
+            SERVICE_NAME='${{ inputs.service_name }}'
+          else
+            SERVICE_NAME=$(echo "${{ github.event.repository.name }}" | sed 's/^bookverse-//')
+          fi
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           TARGET_STAGE='${{ inputs.target_stage }}'
-          APP_VERSION='${{ inputs.version }}'
+          APP_VERSION='${{ inputs.application_version || inputs.version }}'
           if [ -z "$APP_VERSION" ]; then
             RESP=$(curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" \
               "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false")
@@ -92,6 +136,7 @@ jobs:
           echo "application_key=$APPLICATION_KEY" >> $GITHUB_OUTPUT
           echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
           echo "target_stage=$TARGET_STAGE" >> $GITHUB_OUTPUT
+          echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
           echo "Resolved: $APPLICATION_KEY@$APP_VERSION → $TARGET_STAGE"
 
       - name: "[Setup] AppTrust context"
