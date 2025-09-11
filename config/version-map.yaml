@@ -6,11 +6,11 @@ applications:
     packages:
       - type: docker
         name: checkout
-        seed: 2.1.8
+        seed: 3.2.15
       - type: docker
         name: checkout-worker
-        seed: 1.9.12
+        seed: 2.1.12
       - type: docker
         name: checkout-migrations
-        seed: 1.4.6
+        seed: 2.0.7
 
