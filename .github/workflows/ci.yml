@@ -1,8 +1,6 @@
 name: CI
 
 env:
-  # Provide default to satisfy context access warnings when DEMO_MODE not set
-  DEMO_MODE: "false"
 
 # NOTE: Manual trigger only during development phase
 # Will be changed to automatic triggers (push/PR) when demo is ready
@@ -14,12 +12,7 @@ on:
         required: false
         default: 'Manual testing'
         type: string
-      DEMO_MODE:
-        description: 'Enable demo mode (verbose logs, request tracing)'
-        required: false
-        default: 'false'
-        type: choice
-        options: ['false', 'true']
+      
 
 jobs:
   build-test-publish:
@@ -38,40 +31,14 @@ jobs:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
-      - name: "[Setup] DEMO_MODE"
-        if: ${{ inputs.DEMO_MODE == 'true' || env.DEMO_MODE == 'true' }}
-        run: |
-          echo "🔔 DEMO_MODE enabled"
-          # Enable GitHub Actions debug logs for this job
-          echo "ACTIONS_STEP_DEBUG=true" >> $GITHUB_ENV
-          echo "ACTIONS_RUNNER_DEBUG=true" >> $GITHUB_ENV
-          # Make HTTP helpers verbose
-          echo "HTTP_DEBUG_LEVEL=verbose" >> $GITHUB_ENV
-          # Many steps respect this to show detailed shell execution
-          echo "BASH_XTRACE_ENABLED=1" >> $GITHUB_ENV
-          # Also useful for services using LOG_LEVEL env
-          echo "LOG_LEVEL=DEBUG" >> $GITHUB_ENV
+      
 
-      - name: "[Setup] HTTP debug"
-        run: |
-          # HTTP_DEBUG_LEVEL: none|basic|verbose (default basic)
-          case "${HTTP_DEBUG_LEVEL:-}" in
-            none|basic|verbose)
-              echo "HTTP_DEBUG_LEVEL=${HTTP_DEBUG_LEVEL}" >> $GITHUB_ENV ;;
-            *)
-              # If DEMO_MODE is on, keep verbose, else default basic
-              if [[ "${{ inputs.DEMO_MODE }}" == "true" || "${DEMO_MODE:-}" == "true" ]]; then
-                echo "HTTP_DEBUG_LEVEL=verbose" >> $GITHUB_ENV
-              else
-                echo "HTTP_DEBUG_LEVEL=basic" >> $GITHUB_ENV
-              fi ;;
-          esac
 
       - name: "[Info] Manual trigger"
         run: |
           echo "🚀 Manual CI trigger initiated"
           echo "📝 Reason: ${{ inputs.reason || 'Manual testing' }}"
-          echo "🎛️ DEMO_MODE: ${{ inputs.DEMO_MODE || env.DEMO_MODE || 'false' }}"
+          
           echo "👤 Triggered by: ${{ github.actor }}"
           echo "🕐 Timestamp: $(date -u)"
 
@@ -121,43 +88,6 @@ jobs:
         id: set-app-version
         run: |
           set -euo pipefail
-          if [ -f .github/scripts/http_debug.sh ]; then source .github/scripts/http_debug.sh; fi
-          # Fallback minimal debug function (respects HTTP_DEBUG_LEVEL)
-          if ! declare -f print_request_debug >/dev/null 2>&1; then
-            print_request_debug() {
-              local method="$1"; local url="$2"; local body="${3:-}"; local level="${HTTP_DEBUG_LEVEL:-basic}"
-              [ "$level" = "none" ] && return 0
-              local show_project_header=false
-              # Allow forcing header via env var, otherwise infer from URL
-              if [[ "${DEBUG_INCLUDE_PROJECT_HEADER:-}" == "true" || "${DEBUG_INCLUDE_PROJECT_HEADER:-}" == "1" ]]; then
-                show_project_header=true
-              else
-                if [[ "$url" == *"/apptrust/api/"* ]]; then
-                  if [[ "$url" == *"/promote"* || "$url" == *"/release"* ]]; then
-                    show_project_header=false
-                  else
-                    show_project_header=true
-                  fi
-                fi
-              fi
-              local show_content_type=false
-              if [[ "$method" == "POST" ]]; then
-                show_content_type=true
-              fi
-              echo "---- Request debug (${level}) ----"
-              echo "Method: ${method}"
-              echo "URL: ${url}"
-              echo "Headers:"
-              echo "  Authorization: Bearer ***REDACTED***"
-              if $show_project_header && [[ -n "${PROJECT_KEY:-}" ]]; then echo "  X-JFrog-Project: ${PROJECT_KEY}"; fi
-              if $show_content_type; then echo "  Content-Type: application/json"; fi
-              echo "  Accept: application/json"
-              if [ -n "$body" ] && [ "$level" = "verbose" ]; then
-                echo "Body: ${body}"
-              fi
-              echo "-----------------------"
-            }
-          fi
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
@@ -168,7 +98,6 @@ jobs:
             -H "Accept: application/json")
           echo "🔢 Versions GET status: $HTTP_STATUS"
           if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then
-            DEBUG_INCLUDE_PROJECT_HEADER=true PROJECT_KEY='${{ vars.PROJECT_KEY }}' print_request_debug "GET" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/"
           fi
           if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
             # Attempt to parse JSON; if parsing fails, fall back
@@ -179,7 +108,6 @@ jobs:
               LATEST_VERSION=""
             fi
           else
-            PROJECT_KEY='${{ vars.PROJECT_KEY }}' print_request_debug "GET" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/"
             echo "⚠️ Versions API returned non-2xx. Body:"; cat "$RESP_FILE" || true
             LATEST_VERSION=""
           fi
@@ -894,43 +822,6 @@ jobs:
           # Debug: show request context and payload (only tokens are redacted)
           echo "📦 Application Key: $APPLICATION_KEY"
           echo "📝 Payload:"; echo "$APP_VERSION_PAYLOAD" | jq . || echo "$APP_VERSION_PAYLOAD"
-          # Source shared helper if available, with a robust fallback definition
-          if [ -f .github/scripts/http_debug.sh ]; then source .github/scripts/http_debug.sh; fi
-          if ! declare -f print_request_debug >/dev/null 2>&1; then
-            print_request_debug() {
-              local method="$1"; local url="$2"; local body="${3:-}"; local level="${HTTP_DEBUG_LEVEL:-basic}"
-              [ "$level" = "none" ] && return 0
-              local show_project_header=false
-              if [[ "${DEBUG_INCLUDE_PROJECT_HEADER:-}" == "true" || "${DEBUG_INCLUDE_PROJECT_HEADER:-}" == "1" ]]; then
-                show_project_header=true
-              else
-                if [[ "$url" == *"/apptrust/api/"* ]]; then
-                  if [[ "$url" == *"/promote"* || "$url" == *"/release"* ]]; then
-                    show_project_header=false
-                  else
-                    show_project_header=true
-                  fi
-                fi
-              fi
-              local show_content_type=false
-              if [[ "$method" == "POST" ]]; then
-                show_content_type=true
-              fi
-              echo "---- Request debug (${level}) ----"
-              echo "Method: ${method}"
-              echo "URL: ${url}"
-              echo "Headers:"
-              echo "  Authorization: Bearer ***REDACTED***"
-              if $show_project_header && [[ -n "${PROJECT_KEY:-}" ]]; then echo "  X-JFrog-Project: ${PROJECT_KEY}"; fi
-              if $show_content_type; then echo "  Content-Type: application/json"; fi
-              echo "  Accept: application/json"
-              if [ -n "$body" ] && [ "$level" = "verbose" ]; then
-                echo "Body: ${body}"
-              fi
-              echo "-----------------------"
-            }
-          fi
-          DEBUG_INCLUDE_PROJECT_HEADER=false print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" "$APP_VERSION_PAYLOAD"
 
           # Create the application version with status/body capture
           RESP_BODY=$(mktemp)

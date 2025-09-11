@@ -2,31 +2,17 @@
 
 # Helper library for AppTrust promotion workflows (inventory-aligned, header-safe)
 
-# Print sanitized HTTP request debug info, controlled by HTTP_DEBUG_LEVEL: none|basic|verbose
-print_request_debug() {
-  local method="$1"; local url="$2"; local body="${3:-}"; local level="${HTTP_DEBUG_LEVEL:-basic}"
-  [ "$level" = "none" ] && return 0
-  local show_project_header=false
-  # Only include project header when explicitly requested by caller
-  if [[ "${DEBUG_INCLUDE_PROJECT_HEADER:-}" == "true" || "${DEBUG_INCLUDE_PROJECT_HEADER:-}" == "1" ]]; then
-    show_project_header=true
-  fi
-  local show_content_type=false
-  if [[ "$method" == "POST" ]]; then
-    show_content_type=true
-  fi
-  echo "---- Request debug (${level}) ----"
+# Print basic HTTP request info
+print_request_info() {
+  local method="$1"; local url="$2"; local body="${3:-}"
+  echo "---- HTTP Request ----"
   echo "Method: ${method}"
   echo "URL: ${url}"
-  echo "Headers:"
-  echo "  Authorization: Bearer ***REDACTED***"
-  if $show_project_header && [[ -n "${PROJECT_KEY:-}" ]]; then echo "  X-JFrog-Project: ${PROJECT_KEY}"; fi
-  if $show_content_type; then echo "  Content-Type: application/json"; fi
-  echo "  Accept: application/json"
-  if [[ -n "$body" && "$level" = "verbose" ]]; then
+  echo "Headers: Authorization: Bearer ***REDACTED***, Accept: application/json"
+  if [[ "$method" == "POST" && -n "$body" ]]; then
     echo "Body: ${body}"
   fi
-  echo "-----------------------"
+  echo "---------------------"
 }
 
 # Translate a display stage name (e.g., DEV) to API stage identifier
@@ -71,7 +57,7 @@ display_stage_for() {
 
 _http_get_json() {
   local url="$1"; local out_file="$2"; local code
-  print_request_debug "GET" "$url"
+  print_request_info "GET" "$url"
   code=$(curl -sS -L -o "$out_file" -w "%{http_code}" \
     -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN:-}" -H "Accept: application/json" "$url" 2>/dev/null || echo 000)
   echo "$code"
@@ -79,7 +65,7 @@ _http_get_json() {
 
 _http_post_json() {
   local url="$1"; local body_json="$2"; local out_file="$3"; local code
-  print_request_debug "POST" "$url" "$body_json"
+  print_request_info "POST" "$url" "$body_json"
   code=$(curl -sS -L -o "$out_file" -w "%{http_code}" -X POST \
     -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN:-}" -H "Accept: application/json" -H "Content-Type: application/json" \
     -d "$body_json" "$url" 2>/dev/null || echo 000)
@@ -100,7 +86,7 @@ fetch_summary() {
     RELEASE_STATUS=$(jq -r '.release_status // empty' "$body" 2>/dev/null || echo "")
   else
     echo "❌ Failed to fetch version summary (HTTP $code)" >&2
-    print_request_debug "GET" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/content"
+    print_request_info "GET" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/content"
     cat "$body" || true
     rm -f "$body"
     return 1
@@ -140,7 +126,7 @@ promote_to_stage() {
   rm -f "$resp_body"
   if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
     echo "❌ Promotion to ${target_stage_display} failed (HTTP $http_status)" >&2
-    print_request_debug "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/promote?async=false" "{\"target_stage\": \"${api_stage}\", \"promotion_type\": \"move\"}"
+    print_request_info "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/promote?async=false" "{\"target_stage\": \"${api_stage}\", \"promotion_type\": \"move\"}"
     return 1
   fi
   PROMOTED_STAGES="${PROMOTED_STAGES:-}${PROMOTED_STAGES:+ }${target_stage_display}"
@@ -173,7 +159,7 @@ release_version() {
   echo "HTTP $http_status"; cat "$resp_body" || true; echo
   if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
     echo "❌ Release to ${FINAL_STAGE} failed (HTTP $http_status)" >&2
-    print_request_debug "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" "$payload"
+    print_request_info "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" "$payload"
     rm -f "$resp_body"
     return 1
   fi
