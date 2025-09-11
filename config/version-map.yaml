@@ -1,0 +1,16 @@
+applications:
+  - key: bookverse-checkout
+    seeds:
+      application: 3.2.15
+      build: 4.8.27
+    packages:
+      - type: docker
+        name: checkout
+        seed: 2.1.8
+      - type: docker
+        name: checkout-worker
+        seed: 1.9.12
+      - type: docker
+        name: checkout-migrations
+        seed: 1.4.6
+

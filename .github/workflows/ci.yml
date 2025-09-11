@@ -29,9 +29,6 @@ jobs:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
-      
-
-
       - name: "[Info] Manual trigger"
         run: |
           echo "🚀 Manual CI trigger initiated"
@@ -125,47 +122,48 @@ jobs:
           set -euo pipefail
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
-          echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
-          RESP_FILE=$(mktemp)
-          HTTP_STATUS=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-            -H "Accept: application/json")
-          echo "🔢 Versions GET status: $HTTP_STATUS"
-          if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then
-          fi
-          if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
-            # Attempt to parse JSON; if parsing fails, fall back
-            if LATEST_VERSION=$(jq -er '.versions[0].version // empty' "$RESP_FILE" 2>/dev/null); then
-              :
+          VMAP_PATH="./config/version-map.yaml"
+          
+          echo "🔎 Resolving next Application SemVer for $APPLICATION_KEY (SemVer sort)"
+          APP_RESP=$(curl -sS -L -X GET "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=200" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+            -H "Accept: application/json" 2>/dev/null || echo '{"error":"curl_failed"}')
+          if ! echo "$APP_RESP" | jq -e . >/dev/null 2>&1; then
+            APP_LATEST=""
+          else
+            # Take all versions, strip any pre-release suffix, keep strict X.Y.Z, sort numerically and pick last
+            PARSED=$(echo "$APP_RESP" | jq -r '[.versions[]?.version? | gsub("-.*$"; "") | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))]')
+            COUNT=$(printf '%s' "$PARSED" | jq 'length' 2>/dev/null || echo 0)
+            SORTED=$(printf '%s' "$PARSED" | jq -r 'unique | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ])')
+            if [ "${COUNT:-0}" -gt 0 ]; then
+              echo "📚 Found $COUNT existing versions"
             else
-              echo "⚠️ Non-JSON or unexpected response from versions API; will generate a random low initial version"
-              LATEST_VERSION=""
+              echo "📚 No existing versions found"
             fi
-          else
-            echo "⚠️ Versions API returned non-2xx. Body:"; cat "$RESP_FILE" || true
-            LATEST_VERSION=""
+            APP_LATEST=$(printf '%s' "$SORTED" | jq -r '(last // empty)' 2>/dev/null || echo "")
           fi
-          rm -f "$RESP_FILE"
-          if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "null" ]]; then
-            MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
-            MINOR=$(echo "$LATEST_VERSION" | cut -d. -f2)
-            PATCH=$(echo "$LATEST_VERSION" | cut -d. -f3 | cut -d- -f1)
-            APP_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
-            echo "⬆️ Latest=$LATEST_VERSION → Next=$APP_VERSION"
+          if [[ -n "${APP_LATEST}" ]]; then
+            IFS='.' read -r A_MAJ A_MIN A_PAT <<<"${APP_LATEST}"; A_PAT=$((A_PAT+1)); APP_VERSION="${A_MAJ}.${A_MIN}.${A_PAT}"
+            echo "🧮 Latest parsed version: ${APP_LATEST}; ⬆️ next: ${APP_VERSION}"
           else
-            # Generate initial random SemVer: major 1-5, minor 1-50, patch 1-50
-            random_first_semver() {
-              local maj=$(( (RANDOM % 5) + 1 ))
-              local min=$(( (RANDOM % 50) + 1 ))
-              local pat=$(( (RANDOM % 50) + 1 ))
-              printf "%d.%d.%d" "$maj" "$min" "$pat"
-            }
-            APP_VERSION=$(random_first_semver)
-            echo "🆕 No previous version, starting at $APP_VERSION (randomized)"
+            # Use seed version from local version map
+            APP_SEED=$(awk -v key="$APPLICATION_KEY" '
+              BEGIN { found_key=0; in_seeds=0 }
+              /^  - key:/ { found_key = ($3 == key); in_seeds=0; next }
+              found_key && /^    seeds:/ { in_seeds=1; next }
+              found_key && in_seeds && /^[[:space:]]+application:[[:space:]]*/ {
+                sub(/^[ \t]+application:[ \t]*/, "");
+                print; exit
+              }
+            ' "$VMAP_PATH" 2>/dev/null || echo "")
+            # Bump the seed version's patch to avoid repeats when previous runs used the same seed
+            IFS='.' read -r S_MAJ S_MIN S_PAT <<<"${APP_SEED}"; S_PAT=$((S_PAT+1)); APP_VERSION="${S_MAJ}.${S_MIN}.${S_PAT}"
+            echo "🌱 Using seed from version-map.yaml: $APP_SEED; ⬆️ bumped to: $APP_VERSION"
           fi
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
           echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
+          
           # Update image tag/name to use SemVer
           REGISTRY_URL=${REGISTRY_URL:-${{ vars.DOCKER_REGISTRY }}}
           IMAGE_TAG="$APP_VERSION"
@@ -174,23 +172,6 @@ jobs:
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
 
-      - name: "[Setup] Per-image SemVer start (deterministic random)"
-        run: |
-          set -euo pipefail
-          # Derive a deterministic pseudo-random starting patch for each image name to simulate drift
-          # Range: 1..9 for patch; minor fixed 0; major fixed 1
-          seed=$(printf '%s' "$SERVICE_NAME" | sha256sum | cut -c1-8 | tr -d '\n' || true)
-          if [[ -z "$seed" ]]; then seed="1"; fi
-          base_patch=$(( (0x${seed:0:2} % 9) + 1 ))
-          base_minor=$(( (0x${seed:2:2} % 3) ))
-          BASE_IMAGE_VERSION="1.${base_minor}.${base_patch}"
-          # If first run for this repo, and APP_VERSION equals 1.0.0, prefer BASE_IMAGE_VERSION
-          if [[ "$APP_VERSION" == "1.0.0" ]]; then
-            IMAGE_TAG="$BASE_IMAGE_VERSION"
-            IMAGE_NAME="$REGISTRY_URL/${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local/$SERVICE_NAME:$IMAGE_TAG"
-            echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
-            echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
-          fi
       - name: "[Setup] JFrog CLI"
         uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
         #uses: jfrog/setup-jfrog-cli@v4
@@ -217,7 +198,9 @@ jobs:
           set -euo pipefail
           echo "🔎 Checking Artifactory connectivity and PyPI virtual repo"
           jf rt ping || true
-          jf curl -XGET "/api/repositories/${{ vars.PROJECT_KEY }}-pypi-virtual" || true
+          curl -sS -L -X GET "${{ vars.JFROG_URL }}/api/repositories/${{ vars.PROJECT_KEY }}-pypi-virtual" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "Accept: application/json" 2>/dev/null || echo "PyPI virtual repo check failed"
           # Configure pip to use the virtual repo and disable prompts/version check
           jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
           export PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -299,35 +282,33 @@ jobs:
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID" || true
           # Compute per-image next SemVer tag by listing existing tags and bumping patch
-          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
           API_IMAGE_NAME="$SERVICE_NAME"
-          TAGS_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/$REPO_KEY/v2/$API_IMAGE_NAME/tags/list"
-          RESP=$(mktemp)
-          code=$(curl -sS -L -o "$RESP" -w "%{http_code}" -H "Authorization: Bearer $JF_ACCESS_TOKEN" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "$TAGS_URL" || echo 000)
-          code=$(curl -sS -L -o "$RESP" -w "%{http_code}" -H "Authorization: Bearer $JF_ACCESS_TOKEN" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "$TAGS_URL" || echo 000)
-          code=$(curl -sS -L -o "$RESP" -w "%{http_code}" -H "Authorization: Bearer $JF_ACCESS_TOKEN" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "$TAGS_URL" || echo 000)
-          if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
-            LAST=$(jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)' "$RESP")
+          IMG_RESP=$(curl -sS -L -X GET "${{ vars.JFROG_URL }}/api/docker/$REPO_KEY/v2/$API_IMAGE_NAME/tags/list" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "Accept: application/json" 2>/dev/null || echo '{"error":"curl_failed"}')
+          if ! echo "$IMG_RESP" | jq -e . >/dev/null 2>&1; then
+            IMG_LATEST=""
           else
-            LAST=""
+            IMG_LATEST=$(echo "$IMG_RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)')
           fi
-          if [[ -n "$LAST" ]]; then
-            IFS='.' read -r MA MI PA <<<"$LAST"; PA=$((PA+1)); API_TAG="$MA.$MI.$PA"
+          if [[ -n "${IMG_LATEST}" ]]; then
+            IFS='.' read -r I_MAJ I_MIN I_PAT <<<"${IMG_LATEST}"; I_PAT=$((I_PAT+1)); API_TAG="${I_MAJ}.${I_MIN}.${I_PAT}"
           else
-            # Generate a random initial image tag (independent of APP_VERSION)
-            random_first_semver() { local Mj=$(( (RANDOM % 5) + 1 )); local Mn=$(( (RANDOM % 50) + 1 )); local Pt=$(( (RANDOM % 50) + 1 )); printf "%d.%d.%d" "$Mj" "$Mn" "$Pt"; }
-            attempt=0
-            while :; do
-              candidate=$(random_first_semver)
-              if ! jq -e --arg t "$candidate" '.tags[]? | select(. == $t)' "$RESP" >/dev/null 2>&1; then
-                API_TAG="$candidate"; break
-              fi
-              attempt=$((attempt+1))
-              if [[ $attempt -ge 10 ]]; then API_TAG="$IMAGE_TAG"; break; fi
-            done
+            # Use seed version from local version map
+            IMG_SEED=$(awk -v app_key="$APPLICATION_KEY" '
+              BEGIN { found_app=0; in_packages=0; is_docker=0 }
+              /^  - key:/ { found_app = ($3 == app_key); in_packages=0; is_docker=0; next }
+              found_app && /^    packages:/ { in_packages=1; is_docker=0; next }
+              found_app && in_packages && /^      - type:[ \t]*docker/ { is_docker=1; next }
+              found_app && in_packages && is_docker && /^[[:space:]]+seed:[ \t]*/ {
+                sub(/^[ \t]+seed:[ \t]*/, "");
+                print; exit
+              }
+            ' "./config/version-map.yaml" 2>/dev/null || echo "")
+            API_TAG="$IMG_SEED"
+            echo "✅ Using package seed version from version-map.yaml: $API_TAG"
           fi
-          rm -f "$RESP"
           echo "API_TAG=$API_TAG" >> $GITHUB_ENV
           IMAGE_NAME="$REGISTRY_URL/$REPO_KEY/$API_IMAGE_NAME:$API_TAG"
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
@@ -361,31 +342,34 @@ jobs:
         run: |
           set -euo pipefail
           # Compute per-image next SemVer tag for worker
-          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
           WORKER_NAME="$SERVICE_NAME-worker"
-          TAGS_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/$REPO_KEY/v2/$WORKER_NAME/tags/list"
-          RESP=$(mktemp); code=$(curl -sS -L -o "$RESP" -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$TAGS_URL" || echo 000)
-          if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
-            LAST=$(jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)' "$RESP")
+          IMG_RESP=$(curl -sS -L -X GET "${{ vars.JFROG_URL }}/api/docker/$REPO_KEY/v2/$WORKER_NAME/tags/list" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "Accept: application/json" 2>/dev/null || echo '{"error":"curl_failed"}')
+          if ! echo "$IMG_RESP" | jq -e . >/dev/null 2>&1; then
+            IMG_LATEST=""
           else
-            LAST=""
+            IMG_LATEST=$(echo "$IMG_RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)')
           fi
-          if [[ -n "$LAST" ]]; then
-            IFS='.' read -r MA MI PA <<<"$LAST"; PA=$((PA+1)); WORKER_TAG="$MA.$MI.$PA"
+          if [[ -n "${IMG_LATEST}" ]]; then
+            IFS='.' read -r I_MAJ I_MIN I_PAT <<<"${IMG_LATEST}"; I_PAT=$((I_PAT+1)); WORKER_TAG="${I_MAJ}.${I_MIN}.${I_PAT}"
           else
-            random_first_semver() { local Mj=$(( (RANDOM % 5) + 1 )); local Mn=$(( (RANDOM % 50) + 1 )); local Pt=$(( (RANDOM % 50) + 1 )); printf "%d.%d.%d" "$Mj" "$Mn" "$Pt"; }
-            attempt=0
-            while :; do
-              candidate=$(random_first_semver)
-              if ! jq -e --arg t "$candidate" '.tags[]? | select(. == $t)' "$RESP" >/dev/null 2>&1; then
-                WORKER_TAG="$candidate"; break
-              fi
-              attempt=$((attempt+1))
-              if [[ $attempt -ge 10 ]]; then WORKER_TAG="$IMAGE_TAG"; break; fi
-            done
+            # Use seed version from local version map for worker
+            WORKER_SEED=$(awk -v app_key="$APPLICATION_KEY" '
+              BEGIN { found_app=0; in_packages=0; worker_found=0 }
+              /^  - key:/ { found_app = ($3 == app_key); in_packages=0; worker_found=0; next }
+              found_app && /^    packages:/ { in_packages=1; worker_found=0; next }
+              found_app && in_packages && /^      - type:[ \t]*docker/ { worker_found=1; next }
+              found_app && in_packages && worker_found && /^[[:space:]]+name:[ \t]*checkout-worker/ { worker_found=2; next }
+              found_app && in_packages && worker_found == 2 && /^[[:space:]]+seed:[ \t]*/ {
+                sub(/^[ \t]+seed:[ \t]*/, "");
+                print; exit
+              }
+            ' "./config/version-map.yaml" 2>/dev/null || echo "")
+            WORKER_TAG="$WORKER_SEED"
+            echo "✅ Using worker seed version from version-map.yaml: $WORKER_TAG"
           fi
-          rm -f "$RESP"
           echo "WORKER_TAG=$WORKER_TAG" >> $GITHUB_ENV
           WORKER_IMAGE="$REGISTRY_URL/$DOCKER_REPO/$WORKER_NAME:$WORKER_TAG"
           jf docker build -f Dockerfile.worker -t "$WORKER_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
@@ -400,31 +384,34 @@ jobs:
         run: |
           set -euo pipefail
           # Compute per-image next SemVer tag for migrations
-          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
           MIGR_NAME="$SERVICE_NAME-migrations"
-          TAGS_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/$REPO_KEY/v2/$MIGR_NAME/tags/list"
-          RESP=$(mktemp); code=$(curl -sS -L -o "$RESP" -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$TAGS_URL" || echo 000)
-          if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
-            LAST=$(jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)' "$RESP")
+          IMG_RESP=$(curl -sS -L -X GET "${{ vars.JFROG_URL }}/api/docker/$REPO_KEY/v2/$MIGR_NAME/tags/list" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "Accept: application/json" 2>/dev/null || echo '{"error":"curl_failed"}')
+          if ! echo "$IMG_RESP" | jq -e . >/dev/null 2>&1; then
+            IMG_LATEST=""
           else
-            LAST=""
+            IMG_LATEST=$(echo "$IMG_RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)')
           fi
-          if [[ -n "$LAST" ]]; then
-            IFS='.' read -r MA MI PA <<<"$LAST"; PA=$((PA+1)); MIGR_TAG="$MA.$MI.$PA"
+          if [[ -n "${IMG_LATEST}" ]]; then
+            IFS='.' read -r I_MAJ I_MIN I_PAT <<<"${IMG_LATEST}"; I_PAT=$((I_PAT+1)); MIGR_TAG="${I_MAJ}.${I_MIN}.${I_PAT}"
           else
-            random_first_semver() { local Mj=$(( (RANDOM % 5) + 1 )); local Mn=$(( (RANDOM % 50) + 1 )); local Pt=$(( (RANDOM % 50) + 1 )); printf "%d.%d.%d" "$Mj" "$Mn" "$Pt"; }
-            attempt=0
-            while :; do
-              candidate=$(random_first_semver)
-              if ! jq -e --arg t "$candidate" '.tags[]? | select(. == $t)' "$RESP" >/dev/null 2>&1; then
-                MIGR_TAG="$candidate"; break
-              fi
-              attempt=$((attempt+1))
-              if [[ $attempt -ge 10 ]]; then MIGR_TAG="$IMAGE_TAG"; break; fi
-            done
+            # Use seed version from local version map for migrations
+            MIGR_SEED=$(awk -v app_key="$APPLICATION_KEY" '
+              BEGIN { found_app=0; in_packages=0; migr_found=0 }
+              /^  - key:/ { found_app = ($3 == app_key); in_packages=0; migr_found=0; next }
+              found_app && /^    packages:/ { in_packages=1; migr_found=0; next }
+              found_app && in_packages && /^      - type:[ \t]*docker/ { migr_found=1; next }
+              found_app && in_packages && migr_found && /^[[:space:]]+name:[ \t]*checkout-migrations/ { migr_found=2; next }
+              found_app && in_packages && migr_found == 2 && /^[[:space:]]+seed:[ \t]*/ {
+                sub(/^[ \t]+seed:[ \t]*/, "");
+                print; exit
+              }
+            ' "./config/version-map.yaml" 2>/dev/null || echo "")
+            MIGR_TAG="$MIGR_SEED"
+            echo "✅ Using migrations seed version from version-map.yaml: $MIGR_TAG"
           fi
-          rm -f "$RESP"
           echo "MIGR_TAG=$MIGR_TAG" >> $GITHUB_ENV
           MIGRATIONS_IMAGE="$REGISTRY_URL/$DOCKER_REPO/$MIGR_NAME:$MIGR_TAG"
           jf docker build -f Dockerfile.migrations -t "$MIGRATIONS_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
