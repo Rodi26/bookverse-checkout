@@ -1,10 +1,8 @@
 name: CI
 
-env:
-
 # NOTE: Manual trigger only during development phase
 # Will be changed to automatic triggers (push/PR) when demo is ready
-on:
+'on':
   workflow_dispatch:
     inputs:
       reason:
@@ -12,7 +10,7 @@ on:
         required: false
         default: 'Manual testing'
         type: string
-      
+
 
 jobs:
   build-test-publish:
@@ -83,6 +81,43 @@ jobs:
           if [[ -n "$latest_contract" ]]; then IFS='.' read -r ma mi pa <<<"$latest_contract"; pa=$((pa+1)); CONTRACT_VERSION_TAG="$ma.$mi.$pa"; else CONTRACT_VERSION_TAG="$(( (RANDOM % 5) + 1 )).$(( (RANDOM % 50) + 1 )).$(( (RANDOM % 50) + 1 ))"; fi
           echo "OPENAPI_VERSION_TAG=$OPENAPI_VERSION_TAG" >> $GITHUB_ENV
           echo "CONTRACT_VERSION_TAG=$CONTRACT_VERSION_TAG" >> $GITHUB_ENV
+
+      - name: "[Auth] Exchange OIDC and persist JF access token"
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          PROJECT: ${{ vars.PROJECT_KEY }}
+          PROVIDER_NAME: bookverse-checkout-github
+        run: |
+          set -euo pipefail
+          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
+          GH_ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
+          if [[ -z "$GH_ID_TOKEN" || "$GH_ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
+          PAYLOAD=$(jq -n --arg jwt "$GH_ID_TOKEN" \
+            --arg provider_name "$PROVIDER_NAME" \
+            --arg project_key "$PROJECT" \
+            --arg job_id "${{ github.job }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg repo "https://github.com/${{ github.repository }}" \
+            --arg revision "${{ github.sha }}" \
+            --arg branch "${{ github.ref_name }}" \
+            '{
+              grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
+              subject_token_type:"urn:ietf:params:oauth:token-type:id_token",
+              subject_token:$jwt,
+              provider_name:$provider_name,
+              project_key:$project_key,
+              job_id:$job_id,
+              run_id:$run_id,
+              repo:$repo,
+              revision:$revision,
+              branch:$branch
+            }')
+          TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
+          if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
+          echo "JF_ACCESS_TOKEN=$TOKEN" >> $GITHUB_ENV
 
       - name: "[Setup] Determine SemVer"
         id: set-app-version
@@ -269,7 +304,9 @@ jobs:
           API_IMAGE_NAME="$SERVICE_NAME"
           TAGS_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/$REPO_KEY/v2/$API_IMAGE_NAME/tags/list"
           RESP=$(mktemp)
-          code=$(curl -sS -L -o "$RESP" -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$TAGS_URL" || echo 000)
+          code=$(curl -sS -L -o "$RESP" -w "%{http_code}" -H "Authorization: Bearer $JF_ACCESS_TOKEN" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "$TAGS_URL" || echo 000)
+          code=$(curl -sS -L -o "$RESP" -w "%{http_code}" -H "Authorization: Bearer $JF_ACCESS_TOKEN" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "$TAGS_URL" || echo 000)
+          code=$(curl -sS -L -o "$RESP" -w "%{http_code}" -H "Authorization: Bearer $JF_ACCESS_TOKEN" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "$TAGS_URL" || echo 000)
           if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
             LAST=$(jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)' "$RESP")
           else
@@ -763,7 +800,7 @@ jobs:
           ENC_BUILD_NUMBER=$(printf '%s' "$BUILD_NUMBER" | jq -sRr @uri)
           URL="${{ vars.JFROG_URL }}/artifactory/api/build/${ENC_BUILD_NAME}/${ENC_BUILD_NUMBER}?project=${{ vars.PROJECT_KEY }}"
           echo "GET $URL"
-          curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$URL" \
+          curl -sS -H "Authorization: Bearer $JF_ACCESS_TOKEN" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "$URL" \
             | jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})'
 
       - name: "[Release] Create application version"
@@ -827,7 +864,7 @@ jobs:
           RESP_BODY=$(mktemp)
           HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
             "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             -d "$APP_VERSION_PAYLOAD")
@@ -843,7 +880,7 @@ jobs:
           CONTENT_FILE=$(mktemp)
           CONTENT_STATUS=$(curl -sS -L -o "$CONTENT_FILE" -w "%{http_code}" \
             "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
             -H "Accept: application/json")
           if [[ "$CONTENT_STATUS" != "200" ]]; then
             echo "❌ Version content endpoint returned HTTP $CONTENT_STATUS for $APPLICATION_KEY@$APP_VERSION" >&2
