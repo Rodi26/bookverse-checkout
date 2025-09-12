@@ -2,3 +2,7 @@
 # Local virtual environments
 .venv/
 venv/
+
+# Local secrets (never commit)
+.secrets/
+.secrets/**
