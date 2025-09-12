@@ -699,11 +699,11 @@ jobs:
           jf rt ping
           echo "✅ JFrog authentication successful"
 
-      - name: "[Setup] JFrog config"
+      - name: "[Setup] JFrog config via OIDC"
         run: |
-          jf c add bookverse-admin --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}"
-          jf c use bookverse-admin
+          # Use the existing OIDC-authenticated session from setup-jfrog-cli action
           jf c show
+          echo "✅ Using OIDC authentication from setup-jfrog-cli action"
 
       - name: "[Setup] AppTrust variables"
         run: |

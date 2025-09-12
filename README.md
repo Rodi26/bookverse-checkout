@@ -42,14 +42,16 @@ This repository includes a GitHub Actions workflow at `.github/workflows/ci.yml`
 
 ### Required repository secrets (Settings → Secrets and variables → Actions)
 
-- `JFROG_ADMIN_TOKEN`: Admin or appropriate scoped token for API calls
 - `EVIDENCE_PRIVATE_KEY`: Private key PEM for evidence signing (mandatory)
+
+**Note**: No JFrog admin tokens required - all authentication uses OIDC.
 
 ### OIDC configuration
 
 - JFrog OIDC provider name used by workflow: `github-bookverse-checkout`
 - Audience: `jfrog-github`
-- Ensure identity mapping enables this repo’s workflow OIDC to access the JFrog instance
+- **All JFrog API authentication is handled via OIDC** - no admin tokens required
+- Ensure identity mapping enables this repo's workflow OIDC to access the JFrog instance
 
 ### Image naming
 
