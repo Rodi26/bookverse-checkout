@@ -24,6 +24,7 @@ jobs:
       id-token: write
     outputs:
       build_name: ${{ steps.set-build-info.outputs.build_name }}
+      build_started_timestamp: ${{ env.BUILD_STARTED_TIMESTAMP }}
       build_number: ${{ steps.set-build-info.outputs.build_number }}
       app_version: ${{ steps.set-app-version.outputs.app_version }}
       coverage_percent: ${{ steps.test-coverage.outputs.coverage_percent }}
@@ -549,7 +550,24 @@ jobs:
         run: |
           jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
           jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
-          jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          if BUILD_PUBLISH_RESULT=$(jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"); then
+            echo "BUILD_INFO_PUBLISH_STATUS=SUCCESS" >> $GITHUB_ENV
+            
+            # Query build info API to get exact timestamp for collision protection
+            BUILD_INFO_RESPONSE=$(curl -s -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+              "$JF_URL/artifactory/api/build/$BUILD_NAME/$BUILD_NUMBER?project=${{ vars.PROJECT_KEY }}" || echo "")
+            
+            if [[ -n "$BUILD_INFO_RESPONSE" ]]; then
+              BUILD_STARTED_TIMESTAMP=$(echo "$BUILD_INFO_RESPONSE" | jq -r '.buildInfo.started // empty' 2>/dev/null || echo "")
+              if [[ -n "$BUILD_STARTED_TIMESTAMP" && "$BUILD_STARTED_TIMESTAMP" != "null" && "$BUILD_STARTED_TIMESTAMP" != "empty" ]]; then
+                echo "BUILD_STARTED_TIMESTAMP=$BUILD_STARTED_TIMESTAMP" >> $GITHUB_ENV
+                echo "✅ Using exact build timestamp: $BUILD_STARTED_TIMESTAMP"
+              fi
+            fi
+          else
+            echo "BUILD_INFO_PUBLISH_STATUS=FAILED" >> $GITHUB_ENV
+            exit 1
+          fi
 
       - name: "[Evidence] Attach quality gate"
         env:
@@ -686,6 +704,9 @@ jobs:
           BUILD_NAME="${{ github.event.repository.name }}_${{ github.workflow }}_build-test-publish"
           BUILD_NUMBER="${{ github.run_number }}-${{ github.run_attempt }}"
 
+          # Get build timestamp for collision protection
+          BUILD_STARTED_TIMESTAMP="${{ needs.build-test-publish.outputs.build_started_timestamp }}"
+          
           echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
@@ -693,6 +714,7 @@ jobs:
           echo "BUILD_INFO_REPO=$BUILD_INFO_REPO" >> $GITHUB_ENV
           echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
+          echo "BUILD_STARTED_TIMESTAMP=$BUILD_STARTED_TIMESTAMP" >> $GITHUB_ENV
           echo "COVERAGE_PERCENT=${{ needs.build-test-publish.outputs.coverage_percent }}" >> $GITHUB_ENV
 
           echo "✅ AppTrust variables set:"
@@ -784,24 +806,12 @@ jobs:
           APP_TAG="${TAG_OPTIONS[$TAG_INDEX]}"
           echo "🏷️ Application Version Tag (demo simulation): $APP_TAG"
 
-          # Create application version with build sources
-          APP_VERSION_PAYLOAD=$(cat << EOF
-          {
-            "version": "$APP_VERSION",
-            "tag": "$APP_TAG",
-            "sources": {
-              "builds": [
-                {
-                  "name": "$BUILD_NAME",
-                  "number": "$BUILD_NUMBER",
-                  "repository_key": "$BUILD_INFO_REPO",
-                  "include_dependencies": true
-                }
-              ]
-            }
-          }
-          EOF
-          )
+          # Create application version with build sources (with optional timestamp for collision protection)
+          if [[ -n "$BUILD_STARTED_TIMESTAMP" && "$BUILD_STARTED_TIMESTAMP" != "null" ]]; then
+            APP_VERSION_PAYLOAD='{"version":"'$APP_VERSION'","tag":"'$APP_TAG'","sources":{"builds":[{"name":"'$BUILD_NAME'","number":"'$BUILD_NUMBER'","repository_key":"'$BUILD_INFO_REPO'","include_dependencies":true,"started":"'$BUILD_STARTED_TIMESTAMP'"}]}}'
+          else
+            APP_VERSION_PAYLOAD='{"version":"'$APP_VERSION'","tag":"'$APP_TAG'","sources":{"builds":[{"name":"'$BUILD_NAME'","number":"'$BUILD_NUMBER'","repository_key":"'$BUILD_INFO_REPO'","include_dependencies":true}]}}'
+          fi
 
           # Debug: show request context and payload (only tokens are redacted)
           echo "📦 Application Key: $APPLICATION_KEY"
