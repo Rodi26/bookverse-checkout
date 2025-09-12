@@ -304,36 +304,10 @@ jobs:
       - name: "[Build] Worker image"
         run: |
           set -euo pipefail
-          # Calculate worker image version
+          # Use the same IMAGE_TAG for worker image (consistent with unified approach)
           WORKER_NAME="$SERVICE_NAME-worker"
-          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
-          echo "🔎 Resolving next Image SemVer for docker:$REPO_KEY/$WORKER_NAME (SemVer sort)"
-          IMG_RESP=$(curl -sS -L -X GET "${{ vars.JFROG_URL }}/api/docker/$REPO_KEY/v2/$WORKER_NAME/tags/list" \
-            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
-            -H "Accept: application/json" 2>/dev/null || echo '{"error":"curl_failed"}')
-          if ! echo "$IMG_RESP" | jq -e . >/dev/null 2>&1; then
-            IMG_LATEST=""
-          else
-            IMG_LATEST=$(echo "$IMG_RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)')
-          fi
-          if [[ -n "${IMG_LATEST}" ]]; then
-            IFS='.' read -r I_MAJ I_MIN I_PAT <<<"${IMG_LATEST}"; I_PAT=$((I_PAT+1)); WORKER_TAG="${I_MAJ}.${I_MIN}.${I_PAT}"
-          else
-            # Use seed version from local version map for worker
-            WORKER_SEED=$(awk -v app_key="$APPLICATION_KEY" '
-              BEGIN { found_app=0; in_packages=0; worker_found=0 }
-              /^  - key:/ { found_app = ($3 == app_key); in_packages=0; worker_found=0; next }
-              found_app && /^    packages:/ { in_packages=1; worker_found=0; next }
-              found_app && in_packages && /^      - type:[ \t]*docker/ { worker_found=1; next }
-              found_app && in_packages && worker_found && /^[[:space:]]+name:[ \t]*checkout-worker/ { worker_found=2; next }
-              found_app && in_packages && worker_found == 2 && /^[[:space:]]+seed:[ \t]*/ {
-                sub(/^[ \t]+seed:[ \t]*/, "");
-                print; exit
-              }
-            ' "./config/version-map.yaml" 2>/dev/null || echo "")
-            WORKER_TAG="$WORKER_SEED"
-            echo "✅ Using worker seed version from version-map.yaml: $WORKER_TAG"
-          fi
+          WORKER_TAG="$IMAGE_TAG"
+          echo "✅ Using unified IMAGE_TAG for worker: $WORKER_TAG"
           echo "WORKER_TAG=$WORKER_TAG" >> $GITHUB_ENV
           WORKER_IMAGE="$REGISTRY_URL/$DOCKER_REPO/$WORKER_NAME:$WORKER_TAG"
           jf docker build -f Dockerfile.worker -t "$WORKER_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
@@ -347,36 +321,10 @@ jobs:
       - name: "[Build] Migrations image"
         run: |
           set -euo pipefail
-          # Calculate migrations image version
+          # Use the same IMAGE_TAG for migrations image (consistent with unified approach)
           MIGR_NAME="$SERVICE_NAME-migrations"
-          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
-          echo "🔎 Resolving next Image SemVer for docker:$REPO_KEY/$MIGR_NAME (SemVer sort)"
-          IMG_RESP=$(curl -sS -L -X GET "${{ vars.JFROG_URL }}/api/docker/$REPO_KEY/v2/$MIGR_NAME/tags/list" \
-            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
-            -H "Accept: application/json" 2>/dev/null || echo '{"error":"curl_failed"}')
-          if ! echo "$IMG_RESP" | jq -e . >/dev/null 2>&1; then
-            IMG_LATEST=""
-          else
-            IMG_LATEST=$(echo "$IMG_RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)')
-          fi
-          if [[ -n "${IMG_LATEST}" ]]; then
-            IFS='.' read -r I_MAJ I_MIN I_PAT <<<"${IMG_LATEST}"; I_PAT=$((I_PAT+1)); MIGR_TAG="${I_MAJ}.${I_MIN}.${I_PAT}"
-          else
-            # Use seed version from local version map for migrations
-            MIGR_SEED=$(awk -v app_key="$APPLICATION_KEY" '
-              BEGIN { found_app=0; in_packages=0; migr_found=0 }
-              /^  - key:/ { found_app = ($3 == app_key); in_packages=0; migr_found=0; next }
-              found_app && /^    packages:/ { in_packages=1; migr_found=0; next }
-              found_app && in_packages && /^      - type:[ \t]*docker/ { migr_found=1; next }
-              found_app && in_packages && migr_found && /^[[:space:]]+name:[ \t]*checkout-migrations/ { migr_found=2; next }
-              found_app && in_packages && migr_found == 2 && /^[[:space:]]+seed:[ \t]*/ {
-                sub(/^[ \t]+seed:[ \t]*/, "");
-                print; exit
-              }
-            ' "./config/version-map.yaml" 2>/dev/null || echo "")
-            MIGR_TAG="$MIGR_SEED"
-            echo "✅ Using migrations seed version from version-map.yaml: $MIGR_TAG"
-          fi
+          MIGR_TAG="$IMAGE_TAG"
+          echo "✅ Using unified IMAGE_TAG for migrations: $MIGR_TAG"
           echo "MIGR_TAG=$MIGR_TAG" >> $GITHUB_ENV
           MIGRATIONS_IMAGE="$REGISTRY_URL/$DOCKER_REPO/$MIGR_NAME:$MIGR_TAG"
           jf docker build -f Dockerfile.migrations -t "$MIGRATIONS_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
