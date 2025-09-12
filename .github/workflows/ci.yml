@@ -322,7 +322,7 @@ jobs:
           # Re-enable the original push line below once Artifactory is upgraded.
           # jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
           # Using deprecated fallback below: 'jf rt docker-push' (alias: 'jf rt dp').
-          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "$DOCKER_REPO"
           echo "✅ Built and pushed Docker image (with build-info)"
 
       - name: "[Artifacts] OpenAPI spec"
@@ -383,7 +383,7 @@ jobs:
           # Re-enable the original push line below once Artifactory is upgraded.
           # jf docker push "$WORKER_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
           # Using deprecated fallback below: 'jf rt docker-push' (alias: 'jf rt dp').
-          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$WORKER_IMAGE" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$WORKER_IMAGE" "$DOCKER_REPO"
           echo "✅ Worker image built and pushed: $WORKER_IMAGE"
 
       - name: "[Build] Migrations image"
@@ -426,7 +426,7 @@ jobs:
           # Re-enable the original push line below once Artifactory is upgraded.
           # jf docker push "$MIGRATIONS_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
           # Using deprecated fallback below: 'jf rt docker-push' (alias: 'jf rt dp').
-          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$MIGRATIONS_IMAGE" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$MIGRATIONS_IMAGE" "$DOCKER_REPO"
           echo "✅ Migrations image built and pushed: $MIGRATIONS_IMAGE"
 
       # Evidence Plan: Package subject – unit-tests (pytest)
