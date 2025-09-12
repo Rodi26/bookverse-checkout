@@ -13,4 +13,10 @@ applications:
       - type: docker
         name: checkout-migrations
         seed: 2.0.7
+      - type: generic
+        name: openapi
+        seed: 3.2.15
+      - type: generic
+        name: order.created.schema
+        seed: 3.2.15
 
