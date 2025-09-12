@@ -59,7 +59,7 @@ _http_get_json() {
   local url="$1"; local out_file="$2"; local code
   print_request_info "GET" "$url"
   code=$(curl -sS -L -o "$out_file" -w "%{http_code}" \
-    -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN:-}" -H "Accept: application/json" "$url" 2>/dev/null || echo 000)
+    -H "Authorization: Bearer ${APPTRUST_ACCESS_TOKEN:-}" -H "Accept: application/json" "$url" 2>/dev/null || echo 000)
   echo "$code"
 }
 
@@ -67,7 +67,7 @@ _http_post_json() {
   local url="$1"; local body_json="$2"; local out_file="$3"; local code
   print_request_info "POST" "$url" "$body_json"
   code=$(curl -sS -L -o "$out_file" -w "%{http_code}" -X POST \
-    -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN:-}" -H "Accept: application/json" -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${APPTRUST_ACCESS_TOKEN:-}" -H "Accept: application/json" -H "Content-Type: application/json" \
     -d "$body_json" "$url" 2>/dev/null || echo 000)
   echo "$code"
 }
@@ -79,7 +79,7 @@ fetch_summary() {
   local code
   code=$(curl -sS -L -o "$body" -w "%{http_code}" \
     "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/content" \
-    -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN}" \
+    -H "Authorization: Bearer ${APPTRUST_ACCESS_TOKEN}" \
     -H "Accept: application/json" || echo 000)
   if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
     CURRENT_STAGE=$(jq -r '.current_stage // empty' "$body" 2>/dev/null || echo "")
@@ -104,7 +104,7 @@ apptrust_post() {
   local status
   status=$(curl -sS -L -o "$out_file" -w "%{http_code}" -X POST \
     "${JFROG_URL}${path}" \
-    -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN}" \
+    -H "Authorization: Bearer ${APPTRUST_ACCESS_TOKEN}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
     -d "$data")
@@ -152,7 +152,7 @@ release_version() {
   fi
   http_status=$(curl -sS -L -o "$resp_body" -w "%{http_code}" -X POST \
     "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" \
-    -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN}" \
+    -H "Authorization: Bearer ${APPTRUST_ACCESS_TOKEN}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
     -d "$payload")

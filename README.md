@@ -43,7 +43,6 @@ This repository includes a GitHub Actions workflow at `.github/workflows/ci.yml`
 ### Required repository secrets (Settings → Secrets and variables → Actions)
 
 - `JFROG_ADMIN_TOKEN`: Admin or appropriate scoped token for API calls
-- `JFROG_ACCESS_TOKEN`: Access token used by CI to interact with JFrog Platform
 - `EVIDENCE_PRIVATE_KEY`: Private key PEM for evidence signing (mandatory)
 
 ### OIDC configuration

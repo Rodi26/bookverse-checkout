@@ -47,6 +47,45 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y jq
 
+      - name: "[Auth] Exchange GitHub OIDC for JFrog access token"
+        run: |
+          set -euo pipefail
+          BASE="${{ vars.JFROG_URL }}"; BASE="${BASE%/}"
+          if [[ -z "$BASE" ]]; then echo "Missing vars.JFROG_URL" >&2; exit 1; fi
+          PROVIDER_NAME="bookverse-checkout-github"
+          # Mint GitHub OIDC ID token with audience = JFrog URL (align with CI workflow)
+          JF_URL="$BASE"
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
+          echo "🔑 Minting GitHub OIDC ID token (audience=$JF_URL)"
+          ID_TOKEN=$(curl -fsSL -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
+          if [[ -z "$ID_TOKEN" || "$ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
+          echo "🔁 Exchanging OIDC for JFrog access token (provider=$PROVIDER_NAME)"
+          PAYLOAD=$(jq -n --arg jwt "$ID_TOKEN" \
+            --arg provider_name "$PROVIDER_NAME" \
+            --arg project_key "${{ vars.PROJECT_KEY }}" \
+            --arg job_id "${{ github.job }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg repo "https://github.com/${{ github.repository }}" \
+            --arg revision "${{ github.sha }}" \
+            --arg branch "${{ github.ref_name }}" \
+            '{
+              grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
+              subject_token_type:"urn:ietf:params:oauth:token-type:id_token",
+              subject_token:$jwt,
+              provider_name:$provider_name,
+              project_key:$project_key,
+              job_id:$job_id,
+              run_id:$run_id,
+              repo:$repo,
+              revision:$revision,
+              branch:$branch
+            }')
+          RESP=$(curl -fsSL -X POST "$JF_URL/access/api/v1/oidc/token" -H "Content-Type: application/json" -d "$PAYLOAD")
+          APPTRUST_ACCESS_TOKEN=$(echo "$RESP" | jq -er '.access_token // empty' || true)
+          if [[ -z "$APPTRUST_ACCESS_TOKEN" ]]; then echo "Failed to obtain JFrog access token: $RESP" >&2; exit 1; fi
+          echo "APPTRUST_ACCESS_TOKEN=$APPTRUST_ACCESS_TOKEN" >> $GITHUB_ENV
+
       - name: "[Setup] JFrog CLI"
         # Temporary workaround: using forked action until upstream fix
         # uses: jfrog/setup-jfrog-cli@v4
@@ -57,58 +96,56 @@ jobs:
         with:
           version: latest
           oidc-provider-name: bookverse-checkout-github
-          disable-job-summary: false
+          disable-job-summary: true
           oidc-audience: ${{ vars.JFROG_URL }}
 
-      - name: "[Setup] JFrog CLI (admin)"
-        run: |
-          jf c add bookverse-admin --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}"
-          jf c use bookverse-admin
-          jf c show
-
       - name: "[Resolve] App & version"
-        id: app
         run: |
           set -euo pipefail
-          SERVICE_NAME=$(echo "${{ github.event.repository.name }}" | sed 's/^bookverse-//')
+          SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
-          TARGET_STAGE='${{ inputs.target_stage }}'
-          APP_VERSION='${{ inputs.application_version }}'
-          if [ -z "$APP_VERSION" ]; then
-            RESP=$(curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" \
-              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false")
-            APP_VERSION=$(echo "$RESP" | jq -r '.versions[0].version // empty')
+          TARGET_STAGE=${{ inputs.target_stage }}
+          APP_VERSION_INPUT="${{ inputs.application_version }}"
+          APP_VERSION=""
+          if [ -n "$APP_VERSION_INPUT" ]; then
+            APP_VERSION="$APP_VERSION_INPUT"
+          else
+            echo "🔎 Fetching latest application version for $APPLICATION_KEY"
+            BASE="${{ vars.JFROG_URL }}"; BASE="${BASE%/}"
+            jq_expr='.results[0].version // .data[0].version // .items[0].version // .versions[0].version // .results[0].name // .data[0].name // .items[0].name // .versions[0].name // empty'
+            RESP=$(curl -sS -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" "$BASE/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&release_status=RELEASED" || true)
+            if LATEST_VERSION=$(echo "$RESP" | jq -er "$jq_expr" 2>/dev/null); then APP_VERSION="$LATEST_VERSION"; fi
+            if [ -z "$APP_VERSION" ]; then
+              RESP=$(curl -sS -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" "$BASE/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1" || true)
+              if LATEST_VERSION=$(echo "$RESP" | jq -er "$jq_expr" 2>/dev/null); then APP_VERSION="$LATEST_VERSION"; fi
+            fi
+            if [ -z "$APP_VERSION" ]; then
+              echo "❌ Could not determine latest application version for $APPLICATION_KEY" >&2
+              exit 1
+            fi
           fi
-          if [ -z "$APP_VERSION" ] || [ "$APP_VERSION" = "null" ]; then
-            echo "❌ Could not determine app version for $APPLICATION_KEY" >&2
-            exit 1
-          fi
-          echo "application_key=$APPLICATION_KEY" >> $GITHUB_OUTPUT
-          echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
-          echo "target_stage=$TARGET_STAGE" >> $GITHUB_OUTPUT
-          echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
-          echo "Resolved: $APPLICATION_KEY@$APP_VERSION → $TARGET_STAGE"
+          echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
+          echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
+          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
+          echo "TARGET_STAGE=$TARGET_STAGE" >> $GITHUB_ENV
 
-      - name: "[Setup] AppTrust context"
+      - name: "[Setup] Promotion context"
         run: |
           set -euo pipefail
-          # Export variables for current shell and also persist for later steps
-          export APPLICATION_KEY='${{ steps.app.outputs.application_key }}'
-          export APP_VERSION='${{ steps.app.outputs.app_version }}'
-          export TARGET_STAGE='${{ steps.app.outputs.target_stage }}'
-          echo "APPLICATION_KEY=${{ steps.app.outputs.application_key }}" >> $GITHUB_ENV
-          echo "APP_VERSION=${{ steps.app.outputs.app_version }}" >> $GITHUB_ENV
-          echo "TARGET_STAGE=${{ steps.app.outputs.target_stage }}" >> $GITHUB_ENV
+          # This step resolves lifecycle, establishes CURRENT_STAGE, and prepares
+          # variables consumed by promote_lib.sh. See promote_lib.sh header docs
+          # for how advance_one_step orchestrates promote vs release.
           # Initialize lifecycle data
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-          export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
           source .github/scripts/promote_lib.sh
+          echo "📦 Application: $APPLICATION_KEY"
+          echo "🏷️ Version: $APP_VERSION"
           fetch_summary
           echo "CURRENT_STAGE_BEFORE=${CURRENT_STAGE:-UNASSIGNED}" >> $GITHUB_ENV
           echo "RELEASE_STATUS_BEFORE=${RELEASE_STATUS:-UNKNOWN}" >> $GITHUB_ENV
           LC_FILE=$(mktemp)
-          CODE=$(curl -sS -L -o "$LC_FILE" -w "%{http_code}" "$JFROG_URL/access/api/v2/lifecycle/?project_key=$PROJECT_KEY" -H "Authorization: Bearer $JFROG_ADMIN_TOKEN" -H "Accept: application/json" || echo 000)
+          CODE=$(curl -sS -L -o "$LC_FILE" -w "%{http_code}" "$JFROG_URL/access/api/v2/lifecycle/?project_key=$PROJECT_KEY" -H "Authorization: Bearer ${APPTRUST_ACCESS_TOKEN}" -H "Accept: application/json" || echo 000)
           if [[ "$CODE" -lt 200 || "$CODE" -ge 300 ]]; then
             echo "❌ Failed to fetch lifecycles list for project '$PROJECT_KEY' (HTTP $CODE)" >&2
             cat "$LC_FILE" || true
@@ -127,7 +164,7 @@ jobs:
           if [[ -n "$RELEASE_STAGE" ]]; then FINAL_STAGE=$(display_stage_for "$RELEASE_STAGE"); else FINAL_STAGE="${STAGES[$((${#STAGES[@]}-1))]}"; fi
           echo "FINAL_STAGE=$FINAL_STAGE" >> $GITHUB_ENV
           STAGES_STR="${STAGES[*]}"; echo "STAGES_STR=$STAGES_STR" >> $GITHUB_ENV
-          TARGET_NAME='${{ steps.app.outputs.target_stage }}'
+          TARGET_NAME='${{ inputs.target_stage }}'
           echo "TARGET_NAME=$TARGET_NAME" >> $GITHUB_ENV
           echo "PROMOTED_STAGES=" >> $GITHUB_ENV
           echo "DID_RELEASE=false" >> $GITHUB_ENV
@@ -148,7 +185,6 @@ jobs:
           set -euo pipefail
           export JFROG_URL='${{ vars.JFROG_URL }}'
           export PROJECT_KEY='${{ vars.PROJECT_KEY }}'
-          export JFROG_ADMIN_TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
           source .github/scripts/promote_lib.sh
           fetch_summary
           ALLOW_RELEASE=false
@@ -161,7 +197,6 @@ jobs:
           set -euo pipefail
           export JFROG_URL='${{ vars.JFROG_URL }}'
           export PROJECT_KEY='${{ vars.PROJECT_KEY }}'
-          export JFROG_ADMIN_TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
           source .github/scripts/promote_lib.sh
           for i in 1 2 3 4; do
             fetch_summary
@@ -270,7 +305,7 @@ jobs:
         run: |
           set -euo pipefail
           JF_URL='${{ vars.JFROG_URL }}'
-          TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
+          TOKEN="$APPTRUST_ACCESS_TOKEN"
           PROJECT='${{ vars.PROJECT_KEY }}'
           # Derive service name from APPLICATION_KEY set earlier
           SERVICE_NAME="${APPLICATION_KEY#${PROJECT}-}"
@@ -370,7 +405,7 @@ jobs:
           EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           set -euo pipefail
-          export JFROG_URL="${{ vars.JFROG_URL }}"; export PROJECT_KEY="${{ vars.PROJECT_KEY }}"; export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"; source .github/scripts/promote_lib.sh
+          export JFROG_URL="${{ vars.JFROG_URL }}"; export PROJECT_KEY="${{ vars.PROJECT_KEY }}"; source .github/scripts/promote_lib.sh
           fetch_summary
           # Include Docker + Generic release repos to satisfy all package types
           # Derive service name from APPLICATION_KEY (e.g., bookverse-checkout -> checkout)
@@ -393,7 +428,7 @@ jobs:
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           APP_KEY="$APPLICATION_KEY"
           BASE="${{ vars.JFROG_URL }}/apptrust/api/v1"
-          TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
+          TOKEN="$APPTRUST_ACCESS_TOKEN"
           RESP=$(mktemp)
           code=$(curl -sS -L -o "$RESP" -w "%{http_code}" \
             "$BASE/applications/$APP_KEY/versions?limit=1000&order_by=created&order_asc=false" \

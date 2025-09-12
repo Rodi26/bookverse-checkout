@@ -820,9 +820,9 @@ jobs:
 
           # Create application version with build sources (with optional timestamp for collision protection)
           if [[ -n "$BUILD_STARTED_TIMESTAMP" && "$BUILD_STARTED_TIMESTAMP" != "null" ]]; then
-            APP_VERSION_PAYLOAD='{"version":"'$APP_VERSION'","tag":"'$APP_TAG'","sources":{"builds":[{"name":"'$BUILD_NAME'","number":"'$BUILD_NUMBER'","repository_key":"'$BUILD_INFO_REPO'","include_dependencies":true,"started":"'$BUILD_STARTED_TIMESTAMP'"}]}}'
+            APP_VERSION_PAYLOAD='{"version":"'$APP_VERSION'","tag":"'$APP_TAG'","sources":{"builds":[{"name":"'$BUILD_NAME'","number":"'$BUILD_NUMBER'","repository_key":"'$BUILD_INFO_REPO'","include_dependencies":false,"started":"'$BUILD_STARTED_TIMESTAMP'"}]}}'
           else
-            APP_VERSION_PAYLOAD='{"version":"'$APP_VERSION'","tag":"'$APP_TAG'","sources":{"builds":[{"name":"'$BUILD_NAME'","number":"'$BUILD_NUMBER'","repository_key":"'$BUILD_INFO_REPO'","include_dependencies":true}]}}'
+            APP_VERSION_PAYLOAD='{"version":"'$APP_VERSION'","tag":"'$APP_TAG'","sources":{"builds":[{"name":"'$BUILD_NAME'","number":"'$BUILD_NUMBER'","repository_key":"'$BUILD_INFO_REPO'","include_dependencies":false}]}}'
           fi
 
           # Debug: show request context and payload (only tokens are redacted)
