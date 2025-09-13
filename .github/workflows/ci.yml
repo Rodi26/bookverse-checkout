@@ -237,7 +237,10 @@ jobs:
           echo "token=$TOKEN" >> $GITHUB_OUTPUT
           
           # Extract Docker username from token (same as inventory)
-          DOCKER_USER=$(echo "$TOKEN" | base64 -d 2>/dev/null | jq -r '.sub // empty' 2>/dev/null || echo "")
+          PAY_PAD=$(echo "$TOKEN" | cut -d. -f2)
+          PAY_PAD="${PAY_PAD}$(printf '%*s' $(( (4 - ${#PAY_PAD} % 4) % 4 )) | tr ' ' '=')"
+          CLAIMS=$(echo "$PAY_PAD" | tr '_-' '/+' | base64 -d 2>/dev/null || true)
+          DOCKER_USER=$(echo "$CLAIMS" | jq -r '.username // .sub // .subject // empty' 2>/dev/null || true)
           # If sub is in the form jfac@.../users/<username>, extract the trailing <username>
           if [[ "$DOCKER_USER" == *"/users/"* ]]; then
             DOCKER_USER=${DOCKER_USER##*/users/}
