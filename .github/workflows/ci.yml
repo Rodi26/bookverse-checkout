@@ -437,6 +437,46 @@ jobs:
           jf rt dp --project "${{ vars.PROJECT_KEY }}" "$MIGRATIONS_IMAGE" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
           echo "✅ Migrations image built and pushed: $MIGRATIONS_IMAGE"
 
+      - name: "[Build Info] Associate Docker Images"
+        run: |
+          # Critical: Associate Docker images with build info for AppTrust application version creation
+          # This step was missing and caused "source artifact is missing" errors
+          
+          echo "🔗 Associating Docker images with build info..."
+          
+          # Associate API image with build info
+          API_DIGEST=$(jf rt curl -X GET "/api/docker/$DOCKER_REPO/v2/$SERVICE_NAME/$IMAGE_TAG/manifest" | jq -r '.digest // empty')
+          if [[ -n "$API_DIGEST" && "$API_DIGEST" != "null" ]]; then
+            echo "📦 API Image digest: $API_DIGEST"
+            jf rt build-docker-create "$DOCKER_REPO" --image-file "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
+          else
+            echo "⚠️ Could not resolve API image digest, using image name"
+            jf rt build-docker-create "$DOCKER_REPO" --image-file "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
+          fi
+          
+          # Associate Worker image with build info  
+          WORKER_IMAGE="$REGISTRY_URL/$DOCKER_REPO/$SERVICE_NAME-worker:$IMAGE_TAG"
+          WORKER_DIGEST=$(jf rt curl -X GET "/api/docker/$DOCKER_REPO/v2/$SERVICE_NAME-worker/$IMAGE_TAG/manifest" | jq -r '.digest // empty')
+          if [[ -n "$WORKER_DIGEST" && "$WORKER_DIGEST" != "null" ]]; then
+            echo "📦 Worker Image digest: $WORKER_DIGEST"
+            jf rt build-docker-create "$DOCKER_REPO" --image-file "$WORKER_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
+          else
+            echo "⚠️ Could not resolve Worker image digest, using image name"
+            jf rt build-docker-create "$DOCKER_REPO" --image-file "$WORKER_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
+          fi
+          
+          # Associate Migrations image with build info
+          MIGRATIONS_DIGEST=$(jf rt curl -X GET "/api/docker/$DOCKER_REPO/v2/$SERVICE_NAME-migrations/$IMAGE_TAG/manifest" | jq -r '.digest // empty')
+          if [[ -n "$MIGRATIONS_DIGEST" && "$MIGRATIONS_DIGEST" != "null" ]]; then
+            echo "📦 Migrations Image digest: $MIGRATIONS_DIGEST"
+            jf rt build-docker-create "$DOCKER_REPO" --image-file "$MIGRATIONS_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
+          else
+            echo "⚠️ Could not resolve Migrations image digest, using image name"
+            jf rt build-docker-create "$DOCKER_REPO" --image-file "$MIGRATIONS_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
+          fi
+          
+          echo "✅ All Docker images associated with build info"
+
       # Evidence Plan: Package subject – unit-tests (pytest)
       - name: "[Evidence] Prepare coverage template"
         run: |
