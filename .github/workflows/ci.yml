@@ -488,7 +488,8 @@ jobs:
       - name: "[Build Info] Publish"
         run: |
           # Associate the pushed Docker images with the build-info before publishing
-          echo "🔗 Adding docker images to build-info: API=$IMAGE_NAME Worker=$WORKER_IMAGE Migrations=$MIGRATIONS_IMAGE repo=$DOCKER_REPO"
+          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
+          echo "🔗 Adding docker images to build-info: API=$IMAGE_NAME Worker=$WORKER_IMAGE Migrations=$MIGRATIONS_IMAGE repo=$REPO_KEY"
           
           # Resolve API image digest and write in required format: image:tag@sha256:...
           API_DIGEST=$(docker inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
@@ -520,13 +521,26 @@ jobs:
             echo "❌ Could not resolve Migrations image digest for $MIGRATIONS_IMAGE" >&2; exit 1
           fi
           
-          # Create images file with all three images
-          echo "${IMAGE_NAME%@*}@${API_DIGEST}" > images.txt
-          echo "${WORKER_IMAGE%@*}@${WORKER_DIGEST}" >> images.txt
-          echo "${MIGRATIONS_IMAGE%@*}@${MIGRATIONS_DIGEST}" >> images.txt
+          # Associate API image with build info (separate call like working recommendations)
+          echo "${IMAGE_NAME%@*}@${API_DIGEST}" > api_image.txt
+          jf rt build-docker-create "$REPO_KEY" \
+            --image-file api_image.txt \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
+            --project "${{ vars.PROJECT_KEY }}"
           
-          jf rt build-docker-create "$DOCKER_REPO" \
-            --image-file images.txt \
+          # Associate Worker image with build info (separate call like working recommendations)
+          echo "${WORKER_IMAGE%@*}@${WORKER_DIGEST}" > worker_image.txt
+          jf rt build-docker-create "$REPO_KEY" \
+            --image-file worker_image.txt \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
+            --project "${{ vars.PROJECT_KEY }}"
+          
+          # Associate Migrations image with build info (separate call like working recommendations)
+          echo "${MIGRATIONS_IMAGE%@*}@${MIGRATIONS_DIGEST}" > migrations_image.txt
+          jf rt build-docker-create "$REPO_KEY" \
+            --image-file migrations_image.txt \
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
