@@ -381,10 +381,21 @@ jobs:
           # Also set build project explicitly for JFrog CLI commands
           export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
 
+          # Using OIDC-based server configuration from setup action; no admin token required
+          # Use precomputed IMAGE_TAG/IMAGE_NAME from set-app-version step to avoid drift
+          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
+          REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
+          IMAGE_NAME="$REGISTRY_URL/$REPO_KEY/$SERVICE_NAME:$IMAGE_TAG"
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "Using precomputed image tag: $IMAGE_TAG"
+
           # Build and push (plain docker) using subdomain host; then create build-info
           jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
           docker push "$IMAGE_NAME"
-          echo "✅ Built and pushed API image (OIDC docker push + build-info)"
+
+          # Build-info will be published in a later step via bag/bce/bp
+          echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
+          echo "✅ Built and pushed Docker image (OIDC docker push + build-info)"
 
       - name: "[Artifacts] OpenAPI spec"
         run: |
@@ -420,7 +431,11 @@ jobs:
           WORKER_TAG="$IMAGE_TAG"
           echo "✅ Using unified IMAGE_TAG for worker: $WORKER_TAG"
           echo "WORKER_TAG=$WORKER_TAG" >> $GITHUB_ENV
-          WORKER_IMAGE="$REGISTRY_URL/$DOCKER_REPO/$WORKER_NAME:$WORKER_TAG"
+          
+          # Build worker image name using same pattern as API image
+          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
+          REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
+          WORKER_IMAGE="$REGISTRY_URL/$REPO_KEY/$WORKER_NAME:$WORKER_TAG"
           
           # Build and push (plain docker) using subdomain host; then create build-info
           jf docker build -f Dockerfile.worker -t "$WORKER_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
@@ -443,7 +458,11 @@ jobs:
           MIGR_TAG="$IMAGE_TAG"
           echo "✅ Using unified IMAGE_TAG for migrations: $MIGR_TAG"
           echo "MIGR_TAG=$MIGR_TAG" >> $GITHUB_ENV
-          MIGRATIONS_IMAGE="$REGISTRY_URL/$DOCKER_REPO/$MIGR_NAME:$MIGR_TAG"
+          
+          # Build migrations image name using same pattern as API image
+          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
+          REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
+          MIGRATIONS_IMAGE="$REGISTRY_URL/$REPO_KEY/$MIGR_NAME:$MIGR_TAG"
           
           # Build and push (plain docker) using subdomain host; then create build-info
           jf docker build -f Dockerfile.migrations -t "$MIGRATIONS_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
