@@ -452,6 +452,7 @@ jobs:
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
           REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
           WORKER_IMAGE="$REGISTRY_URL/$REPO_KEY/$WORKER_NAME:$WORKER_TAG"
+          echo "WORKER_IMAGE=$WORKER_IMAGE" >> $GITHUB_ENV
           
           # Build and push (plain docker) using subdomain host; then create build-info
           jf docker build -f Dockerfile.worker -t "$WORKER_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
@@ -479,6 +480,7 @@ jobs:
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
           REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
           MIGRATIONS_IMAGE="$REGISTRY_URL/$REPO_KEY/$MIGR_NAME:$MIGR_TAG"
+          echo "MIGRATIONS_IMAGE=$MIGRATIONS_IMAGE" >> $GITHUB_ENV
           
           # Build and push (plain docker) using subdomain host; then create build-info
           jf docker build -f Dockerfile.migrations -t "$MIGRATIONS_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
