@@ -1275,6 +1275,81 @@ jobs:
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ SDLC evidence attachment failed"
 
+      - name: "[Auto-Promote] Through Stages"
+        if: ${{ needs.analyze-commit.outputs.create_app_version == 'true' }}
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          echo "📈 Starting automatic promotion for ${{ env.APP_VERSION }}"
+          
+          # Set up promotion environment variables
+          export JFROG_URL="${{ vars.JFROG_URL }}"
+          export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
+          export APPLICATION_KEY="$APPLICATION_KEY"
+          export APP_VERSION="${{ env.APP_VERSION }}"
+          
+          # Get the OIDC token from the previous step's output
+          OIDC_TOKEN="${{ env.JF_OIDC_TOKEN }}"
+          if [[ -z "$OIDC_TOKEN" ]]; then
+            echo "❌ Failed to get OIDC token from exchange step" >&2
+            exit 1
+          fi
+          export APPTRUST_ACCESS_TOKEN="$OIDC_TOKEN"
+          echo "✅ APPTRUST_ACCESS_TOKEN set for promotion library"
+          
+          # Source the promotion library
+          source .github/scripts/promote_lib.sh
+          
+          # Set up lifecycle stages (demo-optimized: promote directly to PROD)
+          export STAGES_STR="DEV QA STAGING PROD"
+          export FINAL_STAGE="PROD"
+          export ALLOW_RELEASE=true
+          
+          echo "🎯 Demo Mode: Auto-promoting through all stages to PROD"
+          echo "📝 Production Note: Real systems would have approval gates and gradual rollout"
+          
+          # Fetch current status
+          fetch_summary
+          echo "📊 Current stage: ${CURRENT_STAGE:-UNASSIGNED}"
+          
+          # Promote through each stage automatically
+          MAX_PROMOTIONS=4  # Safety limit
+          PROMOTION_COUNT=0
+          
+          while [[ $PROMOTION_COUNT -lt $MAX_PROMOTIONS ]]; do
+            fetch_summary
+            CURRENT_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
+            
+            echo "🔄 Promotion step $((PROMOTION_COUNT + 1)): Currently at $CURRENT_DISPLAY"
+            
+            if [[ "$CURRENT_DISPLAY" == "PROD" ]]; then
+              echo "🎉 Already at PROD - promotion complete!"
+              break
+            fi
+            
+            # Perform one promotion step
+            if advance_one_step; then
+              echo "✅ Promotion step $((PROMOTION_COUNT + 1)) successful"
+              PROMOTION_COUNT=$((PROMOTION_COUNT + 1))
+              sleep 2  # Brief pause between promotions
+            else
+              echo "❌ Promotion step $((PROMOTION_COUNT + 1)) failed"
+              exit 1
+            fi
+          done
+          
+          # Final status check
+          fetch_summary
+          FINAL_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
+          
+          if [[ "$FINAL_DISPLAY" == "PROD" ]]; then
+            echo "🎉 SUCCESS: Application version $APP_VERSION promoted to PROD!"
+            echo "📈 Automatic promotion completed in $PROMOTION_COUNT steps"
+          else
+            echo "⚠️ Promotion incomplete - final stage: $FINAL_DISPLAY"
+            exit 1
+          fi
+
       - name: "[Summary] AppTrust"
         run: |
           echo "## 🚀 AppTrust Promotion Summary" >> $GITHUB_STEP_SUMMARY
@@ -1320,7 +1395,11 @@ jobs:
           echo "   - Created: \`$APPLICATION_KEY@$APP_VERSION\` (sources from \`$BUILD_NAME#$BUILD_NUMBER\`)" >> $GITHUB_STEP_SUMMARY
           echo "   - Automatically bound artifacts from the build (including the Docker image)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "7. 🛡️ Governance Evidence for Promotion to DEV" >> $GITHUB_STEP_SUMMARY
+          echo "7. 🚀 Automatic Promotion to PROD" >> $GITHUB_STEP_SUMMARY
+          echo "   - Promoted through: DEV → QA → STAGING → PROD" >> $GITHUB_STEP_SUMMARY
+          echo "   - Evidence attached at each stage as required" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "8. 🛡️ Governance Evidence for Promotion to DEV" >> $GITHUB_STEP_SUMMARY
           echo "   - SLSA Provenance (release bundle, attachStage=UNASSIGNED, gateForPromotionTo=DEV)" >> $GITHUB_STEP_SUMMARY
           echo "   - Jira Release Notes (3 tickets; demo values)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -1337,14 +1416,14 @@ jobs:
           echo "  - 🔒 SLSA Provenance (v1)" >> $GITHUB_STEP_SUMMARY
           echo "  - 🎫 Jira Release Notes (BV-xxx)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ℹ️ Promotion Readiness" >> $GITHUB_STEP_SUMMARY
-          echo "- Target Environment: DEV" >> $GITHUB_STEP_SUMMARY
-          echo "- All required pre-promotion evidence present (coverage, SAST, quality gate, license, SLSA, release notes)" >> $GITHUB_STEP_SUMMARY
+          echo "### ℹ️ Promotion Status" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Automatically promoted to PROD" >> $GITHUB_STEP_SUMMARY
+          echo "- All required evidence attached at each stage" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🔗 References" >> $GITHUB_STEP_SUMMARY
           echo "- Project: \`${{ vars.PROJECT_KEY }}\` on \`${{ vars.JFROG_URL }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- AppTrust Application Version: \`$APPLICATION_KEY@$APP_VERSION\`" >> $GITHUB_STEP_SUMMARY
           echo "- Build Info: \`$BUILD_NAME#$BUILD_NUMBER\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**✅ Application version prepared and ready for governance and promotion to DEV.**" >> $GITHUB_STEP_SUMMARY
+          echo "**✅ Application version created and automatically promoted to PROD.**" >> $GITHUB_STEP_SUMMARY
 

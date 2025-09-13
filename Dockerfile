@@ -1,6 +1,8 @@
 FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt .
+COPY libs libs
+RUN pip install --no-cache-dir ./libs/bookverse-core
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app app
 EXPOSE 8000

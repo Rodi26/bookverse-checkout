@@ -11,6 +11,10 @@ Endpoints
 """
 
 from fastapi import APIRouter, Header, HTTPException
+from bookverse_core.api.exceptions import (
+    raise_validation_error, raise_not_found_error, raise_conflict_error,
+    raise_idempotency_conflict, raise_insufficient_stock_error, raise_upstream_error
+)
 from typing import Optional
 from sqlalchemy.orm import Session
 
@@ -56,16 +60,16 @@ def create_order_endpoint(payload: CreateOrderRequest, idempotency_key: Optional
     except ValueError as ve:
         detail = str(ve)
         if detail.startswith("idempotency_conflict"):
-            raise HTTPException(status_code=409, detail="idempotency_conflict")
+            raise_idempotency_conflict("Order already exists with different parameters")
         if detail.startswith("insufficient_stock"):
-            raise HTTPException(status_code=409, detail=detail)
-        raise HTTPException(status_code=400, detail=detail)
+            raise_insufficient_stock_error(detail)
+        raise_validation_error(detail)
     except Exception as e:
         # Log the actual error for debugging instead of masking it
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"Unexpected error in create_order_endpoint: {e}", exc_info=True)
-        raise HTTPException(status_code=502, detail=f"upstream_error: {type(e).__name__}")
+        raise_upstream_error(f"Service error: {type(e).__name__}")
 
 
 @router.get("/orders/{order_id}", response_model=OrderResponse)
@@ -91,7 +95,7 @@ def get_order(order_id: str):
         from typing import Optional as _Optional  # local alias to avoid top-level changes
         order: _Optional[Order] = session.get(Order, order_id)
         if not order:
-            raise HTTPException(status_code=404, detail="not_found")
+            raise_not_found_error(f"Order {order_id} not found")
         return _to_response(order, order.items)
 
 

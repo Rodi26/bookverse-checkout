@@ -1,85 +1,57 @@
 name: Rollback
 
+# Documentation:
+# This workflow performs a rollback of an application version using the
+# dedicated AppTrust rollback API. High-level flow:
+# 1) Exchange GitHub OIDC ID token for JFrog access token (no secrets required)
+# 2) Resolve the target version (input or latest promoted) using minted token
+# 3) Capture BEFORE current_stage via Content API using minted token
+# 4) Execute rollback via scripts/apptrust_rollback.py, which calls:
+#    POST /apptrust/api/v1/applications/{app}/versions/{ver}/rollback
+#    with body { from_stage: "PROD" } using minted token (PROD for safety)
+# 5) Capture AFTER current_stage and compute expected previous stage using the
+#    lifecycle definition (bookverse-lifecycle or default DEV→QA→STAGING→PROD)
+# 6) Validate: stage_after must equal previous(stage_before)
+# 7) Summarize and fail the job if validation fails
+# 
+# Authentication: Uses OIDC token exchange
+
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Rollback to version (SemVer). Required.'
-        required: true
-        type: string
-      target_stage:
-        description: 'Target stage to rollback in'
-        required: true
-        default: 'DEV'
-        type: choice
-        options: ['DEV', 'QA', 'STAGING', 'PROD']
-      reason:
-        description: 'Reason/notes for rollback'
+        description: "Version (SemVer) to rollback (omit to use latest promoted)"
         required: false
-        default: 'Demo rollback'
         type: string
+
+concurrency:
+  group: promotion-rollback-${{ github.event.repository.name }}
+  cancel-in-progress: false
 
 jobs:
   rollback:
-    name: Rollback
+    name: Rollback ${{ github.event.repository.name }} ${{ inputs.version || 'latest-promoted' }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
     defaults:
       run:
         shell: bash
-
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
-      - name: "[Setup] JFrog CLI (OIDC)"
-        # Temporary workaround: using forked action until upstream fix
-        # uses: jfrog/setup-jfrog-cli@v4
-        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
-        env:
-          JF_URL: ${{ vars.JFROG_URL }}
-          JF_PROJECT: ${{ vars.PROJECT_KEY }}
-          JFROG_CLI_BUILD_NAME: ${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}
-          JFROG_CLI_BUILD_NUMBER: ${{ github.run_number }}-${{ github.run_attempt }}
+
+      - name: "[Setup] Prereqs (jq)"
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq
+
+      - name: "[Setup] Python"
+        uses: actions/setup-python@v5
         with:
-          version: latest
-          oidc-provider-name: bookverse-checkout-github
-          disable-job-summary: false
-          disable-auto-build-publish: true
-          disable-auto-evidence-collection: false
-          oidc-audience: ${{ vars.JFROG_URL }}
-
-      - name: "[Setup] Export env"
-        env:
-          INPUT_ROLLBACK_TO: ${{ inputs.version }}
-          INPUT_TARGET_ENV: ${{ inputs.target_stage }}
-          INPUT_REASON: ${{ inputs.reason }}
-        run: |
-          SERVICE_NAME="$(echo "${{ github.event.repository.name }}" | sed 's/bookverse-//')"
-          APPLICATION_KEY="bookverse-$SERVICE_NAME"
-          TARGET_ENV="${INPUT_TARGET_ENV:-DEV}"
-          ROLLBACK_TO="$INPUT_ROLLBACK_TO"
-          REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
-          DOCKER_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
-          GENERIC_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-generic-nonprod-local"
-          BUILD_NAME="${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}"
-          BUILD_NUMBER="${{ github.run_number }}-${{ github.run_attempt }}"
-          echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
-          echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
-          echo "TARGET_ENV=$TARGET_ENV" >> $GITHUB_ENV
-          echo "ROLLBACK_TO=$ROLLBACK_TO" >> $GITHUB_ENV
-          echo "REGISTRY_URL=$REGISTRY_URL" >> $GITHUB_ENV
-          echo "DOCKER_REPO=$DOCKER_REPO" >> $GITHUB_ENV
-          echo "GENERIC_REPO=$GENERIC_REPO" >> $GITHUB_ENV
-          echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
-          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
-          echo "ROLLBACK_REASON=${INPUT_REASON:-}" >> $GITHUB_ENV
-
-      - name: "[Validate] Target"
-        run: |
-          if [ -z "$ROLLBACK_TO" ]; then echo "Missing rollback_to_version" >&2; exit 1; fi
+          python-version: '3.11'
 
       - name: "[Auth] Exchange GitHub OIDC for JFrog access token"
         run: |
@@ -120,6 +92,17 @@ jobs:
           if [[ -z "$APPTRUST_ACCESS_TOKEN" ]]; then echo "Failed to obtain JFrog access token: $RESP" >&2; exit 1; fi
           echo "APPTRUST_ACCESS_TOKEN=$APPTRUST_ACCESS_TOKEN" >> $GITHUB_ENV
 
+      - name: "[Setup] JFrog CLI"
+        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+        with:
+          version: latest
+          oidc-provider-name: bookverse-checkout-github
+          disable-job-summary: true
+          oidc-audience: ${{ vars.JFROG_URL }}
+
       - name: "[Rollback] Execute"
         shell: bash
         run: |
@@ -127,11 +110,47 @@ jobs:
           echo "🧭 Starting rollback workflow"
           APPTRUST_BASE_URL="/apptrust/api/v1"
 
+          # Derive application key from repo name (e.g., bookverse-checkout -> bookverse-checkout)
+          SERVICE_NAME=$(echo "${GITHUB_REPOSITORY#*/}" | sed 's/bookverse-//')
+          APP_KEY="bookverse-$SERVICE_NAME"
+          echo "📦 Application: $APP_KEY"
+          # Persist for later steps
+          echo "APPLICATION_KEY=$APP_KEY" >> $GITHUB_ENV
+
+          # Determine target version: use input if provided, else resolve latest promoted
+          TARGET_VERSION="${{ inputs.version || '' }}"
+          if [ -z "$TARGET_VERSION" ]; then
+            echo "🔎 Resolving latest promoted version for $APP_KEY"
+            RESP_FILE=$(mktemp)
+            HTTP_STATUS=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
+              "${{ vars.JFROG_URL }}$APPTRUST_BASE_URL/applications/$APP_KEY/versions?limit=20&order_by=created&order_asc=false" \
+              -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
+              -H "Accept: application/json")
+            if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+              # First try to find RELEASED or TRUSTED_RELEASE versions (preferred)
+              TARGET_VERSION=$(jq -r '.versions[] | select((.release_status|tostring|ascii_upcase)=="RELEASED" or (.release_status|tostring|ascii_upcase)=="TRUSTED_RELEASE") | .version' "$RESP_FILE" | head -n1)
+              
+              # If no RELEASED/TRUSTED_RELEASE versions found, try PRE_RELEASE as fallback
+              if [ -z "${TARGET_VERSION:-}" ] || [ "$TARGET_VERSION" = "null" ]; then
+                echo "ℹ️ No RELEASED/TRUSTED_RELEASE versions found, using latest PRE_RELEASE version"
+                TARGET_VERSION=$(jq -r '.versions[] | select((.release_status|tostring|ascii_upcase)=="PRE_RELEASE") | .version' "$RESP_FILE" | head -n1)
+              fi
+            fi
+            rm -f "$RESP_FILE"
+            if [ -z "${TARGET_VERSION:-}" ] || [ "$TARGET_VERSION" = "null" ]; then
+              echo "❌ Could not resolve latest promoted version for $APP_KEY" >&2
+              exit 1
+            fi
+            echo "🎯 Defaulting to latest promoted version: $TARGET_VERSION"
+          fi
+          # Persist TARGET_VERSION for later steps
+          echo "TARGET_VERSION=$TARGET_VERSION" >> $GITHUB_ENV
+
           # Snapshot BEFORE stage via content API
           CONTENT_BEFORE=$(mktemp)
           CODE_B=$(curl -sS -L -o "$CONTENT_BEFORE" -w "%{http_code}" \
             -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" \
-            "${{ vars.JFROG_URL }}$APPTRUST_BASE_URL/applications/$APPLICATION_KEY/versions/$ROLLBACK_TO/content" || echo 000)
+            "${{ vars.JFROG_URL }}$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$TARGET_VERSION/content" || echo 000)
           CURRENT_STAGE_BEFORE=""
           if [[ "$CODE_B" -ge 200 && "$CODE_B" -lt 300 ]]; then
             CURRENT_STAGE_BEFORE=$(jq -r '.current_stage // empty' "$CONTENT_BEFORE" 2>/dev/null || echo "")
@@ -142,29 +161,24 @@ jobs:
 
           STATUS="SUCCESS"
           MSG=""
-          echo "🔁 Executing rollback via AppTrust rollback API"
-          # Call JFrog AppTrust rollback API to perform stage rollback
-          from_stage="PROD"  # Always rollback from PROD for safety
-          echo "Calling AppTrust endpoint: POST /applications/$APPLICATION_KEY/versions/$ROLLBACK_TO/rollback with body {from_stage: $from_stage}"
-          if curl -sS -L -X POST \
-            "${{ vars.JFROG_URL }}$APPTRUST_BASE_URL/applications/$APPLICATION_KEY/versions/$ROLLBACK_TO/rollback" \
-            -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
-            -H "Content-Type: application/json" \
-            -H "Accept: application/json" \
-            -d "{\"from_stage\": \"$from_stage\"}" --fail; then
-            MSG="Rollback executed for $APPLICATION_KEY@$ROLLBACK_TO from $from_stage"
-            echo "✅ $MSG"
+          echo "🔁 Executing rollback via scripts/apptrust_rollback.py"
+          # Set environment variables for the rollback script to use minted token
+          export APPTRUST_BASE_URL="${{ vars.JFROG_URL }}$APPTRUST_BASE_URL"
+          export APPTRUST_ACCESS_TOKEN="$APPTRUST_ACCESS_TOKEN"
+          if python3 scripts/apptrust_rollback.py \
+            --app "$APP_KEY" \
+            --version "$TARGET_VERSION"; then
+            MSG="Rollback executed for $APP_KEY@$TARGET_VERSION"
           else
             STATUS="FAILED"
-            MSG="Rollback failed for $APPLICATION_KEY@$ROLLBACK_TO"
-            echo "❌ $MSG"
+            MSG="Rollback failed for $APP_KEY@$TARGET_VERSION"
           fi
 
           # Fetch AFTER stage via content API
           CONTENT_TARGET=$(mktemp)
           CODE_T=$(curl -sS -L -o "$CONTENT_TARGET" -w "%{http_code}" \
             -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" \
-            "${{ vars.JFROG_URL }}$APPTRUST_BASE_URL/applications/$APPLICATION_KEY/versions/$ROLLBACK_TO/content" || echo 000)
+            "$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$TARGET_VERSION/content" || echo 000)
           CURR_STAGE_TARGET=""
           if [[ "$CODE_T" -ge 200 && "$CODE_T" -lt 300 ]]; then
             CURR_STAGE_TARGET=$(jq -r '.current_stage // empty' "$CONTENT_TARGET" 2>/dev/null || echo "")
@@ -174,34 +188,37 @@ jobs:
           echo "CURR_STAGE_TARGET=${CURR_STAGE_TARGET:-}" >> $GITHUB_ENV
 
       - name: "[Tags] Enforce PROD 'latest' invariants"
-        if: ${{ inputs.target_stage == 'PROD' }}
         run: |
           set -euo pipefail
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           APP_KEY="$APPLICATION_KEY"
           BASE="${{ vars.JFROG_URL }}/apptrust/api/v1"
-          TOKEN="$APPTRUST_ACCESS_TOKEN"
-          RESP=$(mktemp)
-          code=$(curl -sS -L -o "$RESP" -w "%{http_code}" \
+          RESP_FILE=$(mktemp)
+          HTTP_STATUS=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
             "$BASE/applications/$APP_KEY/versions?limit=1000&order_by=created&order_asc=false" \
-            -H "Authorization: Bearer $TOKEN" -H "Accept: application/json" || echo 000)
-          if [[ "$code" -lt 200 || "$code" -ge 300 ]]; then
-            echo "❌ Failed to list versions (HTTP $code)" >&2; cat "$RESP" || true; exit 1
+            -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
+            -H "Accept: application/json")
+          DESIRED=""
+          if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+            DESIRED=$(jq -r '[.versions[] | select((.release_status|tostring|ascii_upcase)=="RELEASED" or (.release_status|tostring|ascii_upcase)=="TRUSTED_RELEASE") | .version] | unique | map(select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))) | sort_by(split(".")|map(tonumber)) | last // empty' "$RESP_FILE")
           fi
-          DESIRED=$(jq -r '[.versions[] | select((.release_status|tostring|ascii_upcase)=="RELEASED" or (.release_status|tostring|ascii_upcase)=="TRUSTED_RELEASE") | .version] | unique | map(select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))) | sort_by(split(".")|map(tonumber)) | last // empty' "$RESP")
           if [[ -n "$DESIRED" ]]; then
-            CURR_TAG=$(jq -r --arg v "$DESIRED" '.versions[] | select(.version==$v) | (.tag // "")' "$RESP")
+            CURR_TAG=$(jq -r --arg v "$DESIRED" '.versions[] | select(.version==$v) | (.tag // "")' "$RESP_FILE")
             jq -n --arg ct "$CURR_TAG" '{tag:"latest", properties:{original_tag_before_latest:[$ct]}}' > body.json
-            curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$DESIRED" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @body.json | cat
+            curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$DESIRED" \
+              -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
+              -H "Content-Type: application/json" -d @body.json | cat
           fi
-          mapfile -t OTHERS < <(jq -r --arg v "$DESIRED" '.versions[] | select(.tag=="latest" and .version!=$v) | .version' "$RESP")
+          mapfile -t OTHERS < <(jq -r --arg v "$DESIRED" '.versions[] | select(.tag=="latest" and .version!=$v) | .version' "$RESP_FILE")
           for ov in "${OTHERS[@]:-}"; do
             [ -z "$ov" ] && continue
-            restore=$(jq -r --arg v "$ov" '.versions[] | select(.version==$v) | (.properties.original_tag_before_latest[0] // .version // "")' "$RESP")
+            restore=$(jq -r --arg v "$ov" '.versions[] | select(.version==$v) | (.properties.original_tag_before_latest[0] // .version // "")' "$RESP_FILE")
             printf '{"tag":"%s","delete_properties":["original_tag_before_latest"]}' "$restore" > body.json
-            curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$ov" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @body.json | cat
+            curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$ov" \
+              -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
+              -H "Content-Type: application/json" -d @body.json | cat
           done
-          rm -f "$RESP" body.json || true
+          rm -f "$RESP_FILE" body.json || true
 
       - name: "[Validation] Check rollback success"
         run: |
@@ -260,7 +277,7 @@ jobs:
 
           # Finalize validation status after all checks
           STATUS="SUCCESS"
-          MSG="Rollback executed for ${APPLICATION_KEY}@${ROLLBACK_TO}"
+          MSG="Rollback executed for ${APPLICATION_KEY}@${TARGET_VERSION}"
           if [ ${#VALIDATION_ERRORS[@]} -gt 0 ]; then
             STATUS="FAILED"
             MSG="Validation failed: ${VALIDATION_ERRORS[*]}"
@@ -270,8 +287,8 @@ jobs:
             echo "## 🔄 Promotion Rollback"
             echo ""
             echo "**Repository:** \`${{ github.repository }}\`"
-            echo "**Application:** \`$APPLICATION_KEY\`"
-            echo "**Target Version:** \`${ROLLBACK_TO:-unknown}\`"
+            echo "**Application:** \`$APP_KEY\`"
+            echo "**Target Version:** \`${TARGET_VERSION:-unknown}\`"
             echo "**Status:** ${STATUS}"
             echo ""
             echo "### Details"
@@ -297,55 +314,5 @@ jobs:
             echo "${MSG}" >&2
             exit 1
           fi
-
-      - name: "[Evidence] Attach rollback"
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-        run: |
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          cat > rollback-evidence.json <<JSON
-          {
-            "rollback": {
-              "to": "$ROLLBACK_TO",
-              "environment": "$TARGET_ENV",
-              "reason": "${ROLLBACK_REASON}",
-              "actor": "${{ github.actor }}",
-              "timestamp": "${NOW_TS}"
-            }
-          }
-          JSON
-          cat > rollback-evidence.md <<EOF
-          # Rollback Evidence
-
-          - Application: \`$APPLICATION_KEY\`
-          - Rolled back to Version: \`$ROLLBACK_TO\`
-          - Environment: \`$TARGET_ENV\`
-          - Actor: \`${{ github.actor }}\`
-          - Timestamp (UTC): \`${NOW_TS}\`
-          - Reason: \`${ROLLBACK_REASON:-N/A}\`
-          EOF
-          jf evd create-evidence \
-            --predicate rollback-evidence.json \
-            --markdown rollback-evidence.md \
-            --predicate-type "https://jfrog.com/evidence/rollback/v1" \
-            --release-bundle "$APPLICATION_KEY" \
-            --release-bundle-version "$ROLLBACK_TO" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Rollback evidence attach failed"
-
-      - name: "[Summary] Rollback"
-        run: |
-          echo "## ♻️ Rollback Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Application:** \`$APPLICATION_KEY\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Rolled back to:** \`$ROLLBACK_TO\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** \`$TARGET_ENV\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Docker Repo:** \`$DOCKER_REPO\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🛡️ Evidence" >> $GITHUB_STEP_SUMMARY
-          echo "- Rollback evidence attached" >> $GITHUB_STEP_SUMMARY
-
-          echo "✅ Rollback completed successfully for $APPLICATION_KEY@$ROLLBACK_TO"
 
 
