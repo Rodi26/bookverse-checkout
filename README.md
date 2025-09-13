@@ -4,6 +4,10 @@ Minimal FastAPI service for BookVerse. Implements idempotent order creation,
 stock validation against `bookverse-inventory`, and outbox pattern for
 `order.created` domain events.
 
+## Testing Status
+- Testing automatic CI triggers with 3 Docker images (API, Worker, Migrations)
+- Validating commit filtering, application version creation, and auto-promotion
+
 ## Local run
 
 ```bash
