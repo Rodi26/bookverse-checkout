@@ -233,7 +233,20 @@ jobs:
           TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
           if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
           echo "JF_OIDC_TOKEN=$TOKEN" >> $GITHUB_ENV
+          echo "JF_ACCESS_TOKEN=$TOKEN" >> $GITHUB_ENV
           echo "token=$TOKEN" >> $GITHUB_OUTPUT
+          
+          # Extract Docker username from token (same as inventory)
+          DOCKER_USER=$(echo "$TOKEN" | base64 -d 2>/dev/null | jq -r '.sub // empty' 2>/dev/null || echo "")
+          # If sub is in the form jfac@.../users/<username>, extract the trailing <username>
+          if [[ "$DOCKER_USER" == *"/users/"* ]]; then
+            DOCKER_USER=${DOCKER_USER##*/users/}
+          fi
+          if [[ -z "$DOCKER_USER" || "$DOCKER_USER" == "null" ]]; then DOCKER_USER="oauth2_access_token"; fi
+          echo "Using docker username: $DOCKER_USER"
+          REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
+          echo "$TOKEN" | docker login "$REGISTRY_URL" -u "$DOCKER_USER" --password-stdin
+          echo "✅ JFrog access token obtained and Docker login completed"
 
       - name: "[Setup] Determine SemVer"
         id: set-app-version
