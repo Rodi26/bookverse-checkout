@@ -24,7 +24,8 @@ def health():
 
 @app.get("/info")
 def info():
-    return {"service": "checkout", "version": "0.1.0"}
+    import os
+    return {"service": "checkout", "version": os.getenv("SERVICE_VERSION", "0.1.0-dev")}
 
 app.include_router(router)
 

@@ -60,8 +60,12 @@ def create_order_endpoint(payload: CreateOrderRequest, idempotency_key: Optional
         if detail.startswith("insufficient_stock"):
             raise HTTPException(status_code=409, detail=detail)
         raise HTTPException(status_code=400, detail=detail)
-    except Exception:
-        raise HTTPException(status_code=502, detail="upstream_error")
+    except Exception as e:
+        # Log the actual error for debugging instead of masking it
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Unexpected error in create_order_endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"upstream_error: {type(e).__name__}")
 
 
 @router.get("/orders/{order_id}", response_model=OrderResponse)

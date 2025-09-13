@@ -76,8 +76,11 @@ def compute_next_application_version(app_key: str, vm: Dict[str, Any], jfrog_url
     latest_url = f"{base}/applications/{urllib.parse.quote(app_key)}/versions?limit=1&order_by=created&order_asc=false"
     try:
         latest_payload = http_get(latest_url, headers)
-    except Exception:
-        latest_payload = {}
+    except Exception as e:
+        print(f"ERROR: Failed to fetch latest version from AppTrust API: {e}", file=sys.stderr)
+        print(f"URL: {latest_url}", file=sys.stderr)
+        # This is a critical error that should not be silently ignored
+        sys.exit(1)
 
     def first_version(obj: Any) -> Optional[str]:
         if isinstance(obj, dict):

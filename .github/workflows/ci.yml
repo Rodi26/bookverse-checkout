@@ -1,8 +1,12 @@
 name: CI
 
-# NOTE: Manual trigger only during development phase
-# Will be changed to automatic triggers (push/PR) when demo is ready
+# DEMO-READY: Automatic triggers enabled for full CI/CD pipeline demonstration
+# PRODUCTION NOTE: Real systems would have additional branch protection and approval gates
 'on':
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       reason:
@@ -10,11 +14,90 @@ name: CI
         required: false
         default: 'Manual testing'
         type: string
-
+      force_app_version:
+        description: 'Force application version creation (override commit filter)'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
+  analyze-commit:
+    name: "Demo: Analyze Commit (Demo-Optimized)"
+    runs-on: ubuntu-latest
+    outputs:
+      create_app_version: ${{ steps.demo-filter.outputs.create_version }}
+      decision_reason: ${{ steps.demo-filter.outputs.reason }}
+      commit_type: ${{ steps.demo-filter.outputs.commit_type }}
+    steps:
+      - name: "[Setup] Checkout"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Need previous commit for diff analysis
+          
+      - name: "[Demo] Commit Analysis (Optimized for Visibility)"
+        id: demo-filter
+        run: |
+          # DEMO MODE: Favor creating application versions for pipeline visibility
+          # PRODUCTION NOTE: Real systems would default to build-info-only
+          
+          # Handle manual workflow dispatch with force option
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] && [[ "${{ inputs.force_app_version }}" == "true" ]]; then
+            echo "create_version=true" >> $GITHUB_OUTPUT
+            echo "reason=Manual trigger with force_app_version=true" >> $GITHUB_OUTPUT
+            echo "commit_type=manual-override" >> $GITHUB_OUTPUT
+            echo "✅ Demo: Forced application version creation (manual override)"
+            exit 0
+          fi
+          
+          # Get commit information
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            COMMIT_MSG="${{ github.event.pull_request.title }}"
+            COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            COMMIT_MSG="${{ github.event.head_commit.message }}"
+            COMMIT_SHA="${{ github.sha }}"
+          fi
+          
+          CHANGED_FILES=$(git diff --name-only HEAD~1 2>/dev/null || echo "")
+          
+          echo "🎯 DEMO MODE: Analyzing commit for CI/CD pipeline demonstration"
+          echo "📝 Commit: ${COMMIT_SHA:0:8}"
+          echo "💬 Message: $COMMIT_MSG"
+          echo "📁 Changed files: $(echo "$CHANGED_FILES" | wc -l) files"
+          echo "🏭 Production note: Real systems would use conservative defaults"
+          echo ""
+          
+          # Demo: Simple rules for clarity (production would have 10-15 rules)
+          if [[ "$COMMIT_MSG" =~ \[skip-version\] ]]; then
+            echo "create_version=false" >> $GITHUB_OUTPUT
+            echo "reason=Explicit [skip-version] tag" >> $GITHUB_OUTPUT
+            echo "commit_type=build-only" >> $GITHUB_OUTPUT
+            echo "🔨 Demo: Build info only (explicit skip)"
+            
+          elif [[ "$COMMIT_MSG" =~ ^docs?: ]] && [[ -n "$CHANGED_FILES" ]] && [[ $(echo "$CHANGED_FILES" | grep -v '\.md$\|^docs/\|^README' | wc -l) -eq 0 ]]; then
+            echo "create_version=false" >> $GITHUB_OUTPUT  
+            echo "reason=Documentation-only changes" >> $GITHUB_OUTPUT
+            echo "commit_type=build-only" >> $GITHUB_OUTPUT
+            echo "🔨 Demo: Build info only (docs-only)"
+            
+          elif [[ "$COMMIT_MSG" =~ ^test?: ]] && [[ -n "$CHANGED_FILES" ]] && [[ $(echo "$CHANGED_FILES" | grep -v '^tests\?/\|_test\.\|\.test\.' | wc -l) -eq 0 ]]; then
+            echo "create_version=false" >> $GITHUB_OUTPUT
+            echo "reason=Test-only changes" >> $GITHUB_OUTPUT  
+            echo "commit_type=build-only" >> $GITHUB_OUTPUT
+            echo "🔨 Demo: Build info only (tests-only)"
+            
+          else
+            # DEMO DEFAULT: Create application version for pipeline visibility
+            echo "create_version=true" >> $GITHUB_OUTPUT
+            echo "reason=Demo mode: showing full CI/CD pipeline" >> $GITHUB_OUTPUT
+            echo "commit_type=release-ready" >> $GITHUB_OUTPUT
+            echo "✅ Demo: Creating app version (demo visibility mode)"
+            echo "📝 Production note: Real systems would be more conservative here"
+          fi
+
   build-test-publish:
     name: CI
+    needs: analyze-commit
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -34,12 +117,30 @@ jobs:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
-      - name: "[Info] Manual trigger"
+      - name: "[Info] Trigger Information"
         run: |
-          echo "🚀 Manual CI trigger initiated"
-          echo "📝 Reason: ${{ inputs.reason || 'Manual testing' }}"          
+          echo "🚀 CI Pipeline Triggered"
+          echo "🔄 Event: ${{ github.event_name }}"
           echo "👤 Triggered by: ${{ github.actor }}"
           echo "🕐 Timestamp: $(date -u)"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "📝 Manual reason: ${{ inputs.reason }}"
+            echo "⚡ Force app version: ${{ inputs.force_app_version }}"
+          fi
+          
+      - name: "[Demo] Commit Analysis Result"
+        run: |
+          echo "🔍 Commit Analysis Decision:"
+          echo "   Create App Version: ${{ needs.analyze-commit.outputs.create_app_version }}"
+          echo "   Decision Reason: ${{ needs.analyze-commit.outputs.decision_reason }}"
+          echo "   Commit Type: ${{ needs.analyze-commit.outputs.commit_type }}"
+          echo ""
+          if [[ "${{ needs.analyze-commit.outputs.create_app_version }}" == "true" ]]; then
+            echo "✅ This will trigger the full promotion pipeline for demo visibility"
+          else
+            echo "🔨 Build info will be created for traceability (no promotion pipeline)"
+            echo "🏭 Production note: This would be the default behavior in real systems"
+          fi
 
       - name: "[Setup] Build Info"
         id: set-build-info
@@ -131,7 +232,7 @@ jobs:
             }')
           TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
           if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
-          echo "JF_ACCESS_TOKEN=$TOKEN" >> $GITHUB_ENV
+          echo "JF_OIDC_TOKEN=$TOKEN" >> $GITHUB_ENV
           echo "token=$TOKEN" >> $GITHUB_OUTPUT
 
       - name: "[Setup] Determine SemVer"
@@ -147,7 +248,7 @@ jobs:
             --application-key "$APPLICATION_KEY" \
             --version-map "./config/version-map.yaml" \
             --jfrog-url "${{ vars.JFROG_URL }}" \
-            --jfrog-token "$JF_ACCESS_TOKEN" \
+            --jfrog-token "$JF_OIDC_TOKEN" \
             --project-key "${{ vars.PROJECT_KEY }}" \
             --packages "$SERVICE_NAME" \
             --verbose)
@@ -193,7 +294,7 @@ jobs:
           echo "🔎 Checking Artifactory connectivity and PyPI virtual repo"
           jf rt ping || true
           curl -sS -L -X GET "${{ vars.JFROG_URL }}/api/repositories/${{ vars.PROJECT_KEY }}-pypi-virtual" \
-            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "Authorization: Bearer $JF_OIDC_TOKEN" \
             -H "Accept: application/json" 2>/dev/null || echo "PyPI virtual repo check failed"
           # Configure pip to use the virtual repo and disable prompts/version check
           jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
@@ -770,7 +871,7 @@ jobs:
             }')
           TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
           if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
-          echo "JF_ACCESS_TOKEN=$TOKEN" >> $GITHUB_ENV
+          echo "JF_OIDC_TOKEN=$TOKEN" >> $GITHUB_ENV
 
       - name: "[Diag] Build Info contents"
         run: |
@@ -781,10 +882,11 @@ jobs:
           ENC_BUILD_NUMBER=$(printf '%s' "$BUILD_NUMBER" | jq -sRr @uri)
           URL="${{ vars.JFROG_URL }}/artifactory/api/build/${ENC_BUILD_NAME}/${ENC_BUILD_NUMBER}?project=${{ vars.PROJECT_KEY }}"
           echo "GET $URL"
-          curl -sS -H "Authorization: Bearer $JF_ACCESS_TOKEN" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "$URL" \
+          curl -sS -H "Authorization: Bearer $JF_OIDC_TOKEN" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "$URL" \
             | jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})'
 
       - name: "[Release] Create application version"
+        if: ${{ needs.analyze-commit.outputs.create_app_version == 'true' }}
         run: |
           echo "🚀 Creating AppTrust application version: $APP_VERSION"
 
@@ -833,7 +935,7 @@ jobs:
           RESP_BODY=$(mktemp)
           HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
             "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
-            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "Authorization: Bearer $JF_OIDC_TOKEN" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             -d "$APP_VERSION_PAYLOAD")
@@ -849,7 +951,7 @@ jobs:
           CONTENT_FILE=$(mktemp)
           CONTENT_STATUS=$(curl -sS -L -o "$CONTENT_FILE" -w "%{http_code}" \
             "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
-            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "Authorization: Bearer $JF_OIDC_TOKEN" \
             -H "Accept: application/json")
           if [[ "$CONTENT_STATUS" != "200" ]]; then
             echo "❌ Version content endpoint returned HTTP $CONTENT_STATUS for $APPLICATION_KEY@$APP_VERSION" >&2
