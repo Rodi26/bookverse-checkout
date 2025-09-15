@@ -16,7 +16,7 @@ from fastapi import FastAPI
 
 # Import bookverse-core app factory, configuration, logging, middleware, and health
 from bookverse_core.api.app_factory import create_app
-from bookverse_core.api.middleware import RequestIDMiddleware, RequestLoggingMiddleware
+from bookverse_core.api.middleware import RequestIDMiddleware, LoggingMiddleware
 from bookverse_core.api.health import create_health_router
 from bookverse_core.config import BaseConfig
 from bookverse_core.utils.logging import (
@@ -56,7 +56,7 @@ app = create_app(
 
 # Add bookverse-core middleware for request tracking and logging
 app.add_middleware(RequestIDMiddleware)
-app.add_middleware(RequestLoggingMiddleware, service_name="checkout")
+app.add_middleware(LoggingMiddleware, service_name="checkout")
 
 # Include bookverse-core health router for Kubernetes readiness/liveness
 health_router = create_health_router(
