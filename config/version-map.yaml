@@ -2,7 +2,6 @@ applications:
   - key: bookverse-checkout
     seeds:
       application: 3.2.15
-      build: 4.8.27
     packages:
       - type: docker
         name: checkout
