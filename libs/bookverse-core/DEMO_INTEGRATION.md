@@ -59,7 +59,8 @@ The library is now ready for:
 
 ### 🔗 Integration Points
 
-- **Demo Init Scripts**: `bookverse-demo-init/.github/scripts/setup/`
+- **Setup Scripts**: `bookverse-demo-init/.github/scripts/setup/` (setup only)
+- **Operational Scripts**: `bookverse-infra/libraries/bookverse-devops/scripts/`
 - **Platform Components**: `bookverse-helm/platform_components.json`
 - **Version Management**: `config/version-map.yaml`
 - **CI/CD Workflows**: `.github/workflows/`
