@@ -61,9 +61,7 @@ app.add_middleware(LoggingMiddleware, service_name="checkout")
 # Include bookverse-core health router for Kubernetes readiness/liveness
 health_router = create_health_router(
     service_name="checkout",
-    version=service_version,
-    include_auth_check=False,  # Inter-service auth not in demo scope
-    include_database_check=True
+    service_version=service_version
 )
 app.include_router(health_router, prefix="/health", tags=["health"])
 
