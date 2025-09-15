@@ -850,10 +850,18 @@ jobs:
 
     env:
       JFROG_CLI_SIGNING_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+      EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
 
     steps:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
+
+      - name: "[Setup] Checkout bookverse-infra for shared scripts"
+        uses: actions/checkout@v4
+        with:
+          repository: yonatanp-jfrog/bookverse-infra
+          path: bookverse-infra
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: "[Setup] JFrog CLI"
         # Temporary workaround: using forked action until upstream fix
@@ -1047,7 +1055,27 @@ jobs:
           echo "✅ Application version created and validated (COMPLETED): $APPLICATION_KEY@$APP_VERSION"
           echo "📦 Packages will be automatically bound from build sources"
 
-      # Evidence Plan: App UNASSIGNED – slsa-provenance and jira-tickets (gate to DEV)
+      - name: "[Evidence] Application Version Evidence (Shared Library)"
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          SERVICE_NAME: checkout
+          APPLICATION_KEY: ${{ env.APPLICATION_KEY }}
+          APP_VERSION: ${{ env.APP_VERSION }}
+          PROJECT_KEY: ${{ vars.PROJECT_KEY }}
+          JFROG_URL: ${{ vars.JFROG_URL }}
+        run: |
+          echo "📋 Generating evidence for application version using shared evidence library"
+          
+          # Source the evidence library
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          
+          # Attach application evidence for UNASSIGNED stage
+          # Evidence: SLSA Provenance (supply chain security) + Jira Release (release tracking and approval)
+          attach_application_unassigned_evidence
+          
+          echo "✅ Application version evidence attached: slsa-provenance, jira-release"
+
+      # Evidence Plan: App UNASSIGNED – slsa-provenance and jira-tickets (gate to DEV) - LEGACY (keeping for compatibility)
       - name: "[Evidence] Prepare UNASSIGNED templates"
         run: |
           set -euo pipefail
