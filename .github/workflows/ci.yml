@@ -74,6 +74,13 @@ jobs:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
+      - name: "[Setup] Checkout bookverse-infra for shared scripts"
+        uses: actions/checkout@v4
+        with:
+          repository: yonatanp-jfrog/bookverse-infra
+          path: bookverse-infra
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: "[Info] Trigger Information"
         run: |
           echo "🚀 CI Pipeline Triggered"
