@@ -22,7 +22,7 @@ name: CI
 
 jobs:
   analyze-commit:
-    name: "Demo: Analyze Commit (Demo-Optimized)"
+    name: "Demo: Analyze Commit (Shared Script)"
     runs-on: ubuntu-latest
     outputs:
       create_app_version: ${{ steps.demo-filter.outputs.create_version }}
@@ -32,68 +32,25 @@ jobs:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2  # Need previous commit for diff analysis
+          fetch-depth: 2
+
+      - name: "[Setup] Checkout bookverse-infra for shared scripts"
+        uses: actions/checkout@v4
+        with:
+          repository: yonatanp-jfrog/bookverse-infra
+          path: bookverse-infra
+          token: ${{ secrets.GITHUB_TOKEN }}
           
-      - name: "[Demo] Commit Analysis (Optimized for Visibility)"
+      - name: "[Demo] Commit Analysis (Shared bookverse-devops Script)"
         id: demo-filter
         run: |
-          # DEMO MODE: Favor creating application versions for pipeline visibility
-          # PRODUCTION NOTE: Real systems would default to build-info-only
-          
-          # Handle manual workflow dispatch with force option
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] && [[ "${{ inputs.force_app_version }}" == "true" ]]; then
-            echo "create_version=true" >> $GITHUB_OUTPUT
-            echo "reason=Manual trigger with force_app_version=true" >> $GITHUB_OUTPUT
-            echo "commit_type=manual-override" >> $GITHUB_OUTPUT
-            echo "✅ Demo: Forced application version creation (manual override)"
-            exit 0
-          fi
-          
-          # Get commit information
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            COMMIT_MSG="${{ github.event.pull_request.title }}"
-            COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
-          else
-            COMMIT_MSG="${{ github.event.head_commit.message }}"
-            COMMIT_SHA="${{ github.sha }}"
-          fi
-          
-          CHANGED_FILES=$(git diff --name-only HEAD~1 2>/dev/null || echo "")
-          
-          echo "🎯 DEMO MODE: Analyzing commit for CI/CD pipeline demonstration"
-          echo "📝 Commit: ${COMMIT_SHA:0:8}"
-          echo "💬 Message: $COMMIT_MSG"
-          echo "📁 Changed files: $(echo "$CHANGED_FILES" | wc -l) files"
-          echo "🏭 Production note: Real systems would use conservative defaults"
-          echo ""
-          
-          # Demo: Simple rules for clarity (production would have 10-15 rules)
-          if [[ "$COMMIT_MSG" =~ \[skip-version\] ]]; then
-            echo "create_version=false" >> $GITHUB_OUTPUT
-            echo "reason=Explicit [skip-version] tag" >> $GITHUB_OUTPUT
-            echo "commit_type=build-only" >> $GITHUB_OUTPUT
-            echo "🔨 Demo: Build info only (explicit skip)"
-            
-          elif [[ "$COMMIT_MSG" =~ ^docs?: ]] && [[ -n "$CHANGED_FILES" ]] && [[ $(echo "$CHANGED_FILES" | grep -v '\.md$\|^docs/\|^README' | wc -l) -eq 0 ]]; then
-            echo "create_version=false" >> $GITHUB_OUTPUT  
-            echo "reason=Documentation-only changes" >> $GITHUB_OUTPUT
-            echo "commit_type=build-only" >> $GITHUB_OUTPUT
-            echo "🔨 Demo: Build info only (docs-only)"
-            
-          elif [[ "$COMMIT_MSG" =~ ^test?: ]] && [[ -n "$CHANGED_FILES" ]] && [[ $(echo "$CHANGED_FILES" | grep -v '^tests\?/\|_test\.\|\.test\.' | wc -l) -eq 0 ]]; then
-            echo "create_version=false" >> $GITHUB_OUTPUT
-            echo "reason=Test-only changes" >> $GITHUB_OUTPUT  
-            echo "commit_type=build-only" >> $GITHUB_OUTPUT
-            echo "🔨 Demo: Build info only (tests-only)"
-            
-          else
-            # DEMO DEFAULT: Create application version for pipeline visibility
-            echo "create_version=true" >> $GITHUB_OUTPUT
-            echo "reason=Demo mode: showing full CI/CD pipeline" >> $GITHUB_OUTPUT
-            echo "commit_type=release-ready" >> $GITHUB_OUTPUT
-            echo "✅ Demo: Creating app version (demo visibility mode)"
-            echo "📝 Production note: Real systems would be more conservative here"
-          fi
+          echo "🔗 Using shared commit analysis script from bookverse-devops"
+          echo "📂 Using shared scripts from bookverse-infra repository"
+          echo "🔧 Making script executable..."
+          chmod +x bookverse-infra/libraries/bookverse-devops/scripts/analyze-commit.sh
+          echo "🚀 Running script..."
+          bookverse-infra/libraries/bookverse-devops/scripts/analyze-commit.sh
+          echo "✅ Commit analysis completed using shared script"
 
   build-test-publish:
     name: CI
@@ -111,7 +68,7 @@ jobs:
       build_number: ${{ steps.set-build-info.outputs.build_number }}
       app_version: ${{ steps.set-app-version.outputs.app_version }}
       coverage_percent: ${{ steps.test-coverage.outputs.coverage_percent }}
-      jf_access_token: ${{ steps.exchange-oidc.outputs.token }}
+      jf_oidc_token: ${{ steps.exchange-oidc.outputs.token }}
 
     steps:
       - name: "[Setup] Checkout"
@@ -196,60 +153,18 @@ jobs:
           jf rt ping
           echo "✅ JFrog authentication successful"
 
-      - name: "[Auth] Exchange OIDC and persist JF access token"
+      - name: "[Auth] OIDC Token Exchange (bookverse-devops shared script)"
         id: exchange-oidc
-        env:
-          JF_URL: ${{ vars.JFROG_URL }}
-          PROJECT: ${{ vars.PROJECT_KEY }}
-          PROVIDER_NAME: bookverse-checkout-github
         run: |
-          set -euo pipefail
-          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
-          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
-            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
-          GH_ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
-          if [[ -z "$GH_ID_TOKEN" || "$GH_ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
-          PAYLOAD=$(jq -n --arg jwt "$GH_ID_TOKEN" \
-            --arg provider_name "$PROVIDER_NAME" \
-            --arg project_key "$PROJECT" \
-            --arg job_id "${{ github.job }}" \
-            --arg run_id "${{ github.run_id }}" \
-            --arg repo "https://github.com/${{ github.repository }}" \
-            --arg revision "${{ github.sha }}" \
-            --arg branch "${{ github.ref_name }}" \
-            '{
-              grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
-              subject_token_type:"urn:ietf:params:oauth:token-type:id_token",
-              subject_token:$jwt,
-              provider_name:$provider_name,
-              project_key:$project_key,
-              job_id:$job_id,
-              run_id:$run_id,
-              repo:$repo,
-              revision:$revision,
-              branch:$branch
-            }')
-          TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
-          if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
-          echo "JF_OIDC_TOKEN=$TOKEN" >> $GITHUB_ENV
-          echo "JF_ACCESS_TOKEN=$TOKEN" >> $GITHUB_ENV
-          echo "token=$TOKEN" >> $GITHUB_OUTPUT
-          
-          # Extract Docker username from token (same as inventory)
-          PAY_PAD=$(echo "$TOKEN" | cut -d. -f2)
-          PAY_PAD="${PAY_PAD}$(printf '%*s' $(( (4 - ${#PAY_PAD} % 4) % 4 )) | tr ' ' '=')"
-          CLAIMS=$(echo "$PAY_PAD" | tr '_-' '/+' | base64 -d 2>/dev/null || true)
-          DOCKER_USER=$(echo "$CLAIMS" | jq -r '.username // .sub // .subject // empty' 2>/dev/null || true)
-          # If sub is in the form jfac@.../users/<username>, extract the trailing <username>
-          if [[ "$DOCKER_USER" == *"/users/"* ]]; then
-            DOCKER_USER=${DOCKER_USER##*/users/}
-          fi
-          if [[ -z "$DOCKER_USER" || "$DOCKER_USER" == "null" ]]; then DOCKER_USER="oauth2_access_token"; fi
-          echo "Using docker username: $DOCKER_USER"
-          REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
-          echo "$TOKEN" | docker login "$REGISTRY_URL" -u "$DOCKER_USER" --password-stdin
-          echo "✅ JFrog access token obtained and Docker login completed"
+          echo "🔐 Using bookverse-devops shared OIDC exchange script"
+          # Use shared script to eliminate ~40 lines of duplicate OIDC logic
+          bookverse-infra/libraries/bookverse-devops/scripts/exchange-oidc-token.sh \
+            --service-name "checkout" \
+            --provider-name "bookverse-checkout-github" \
+            --jfrog-url "${{ vars.JFROG_URL }}" \
+            --docker-registry "${{ vars.DOCKER_REGISTRY }}" \
+            --verbose
+          echo "✅ OIDC token exchange completed using shared bookverse-devops script"
 
       - name: "[Setup] Determine SemVer"
         id: set-app-version
@@ -258,9 +173,23 @@ jobs:
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           
-          # Use the unified semver determination script
-          chmod +x ./scripts/determine-semver.sh
-          SEMVER_OUTPUT=$(./scripts/determine-semver.sh \
+          # Use shared semver logic from bookverse-infra (proper infrastructure repository)
+          echo "📋 Using shared semver logic from bookverse-infra"
+          
+          # Copy shared scripts from bookverse-infra/libraries/bookverse-devops
+          INFRA_SCRIPTS_PATH="bookverse-infra/libraries/bookverse-devops/scripts"
+          if [[ -f "$INFRA_SCRIPTS_PATH/determine-semver.sh" ]]; then
+            cp "$INFRA_SCRIPTS_PATH/determine-semver.sh" .
+            cp "$INFRA_SCRIPTS_PATH/semver_versioning.py" .
+            chmod +x determine-semver.sh
+            echo "✅ Using shared semver scripts from bookverse-infra"
+          else
+            echo "❌ Shared semver scripts not found in bookverse-infra at $INFRA_SCRIPTS_PATH" >&2
+            exit 1
+          fi
+          
+          # Use the shared semver determination script
+          SEMVER_OUTPUT=$(./determine-semver.sh \
             --application-key "$APPLICATION_KEY" \
             --version-map "./config/version-map.yaml" \
             --jfrog-url "${{ vars.JFROG_URL }}" \
