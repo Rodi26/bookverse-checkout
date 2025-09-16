@@ -771,6 +771,72 @@ jobs:
           
           echo "✅ Build evidence attached: fossa-license-scan, sonar-quality-gate"
 
+      - name: "[DEBUG] Manual Evidence Test"
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          echo "🔍 DEBUG: Testing manual evidence attachment"
+          
+          # Display current environment
+          echo "📋 Current environment:"
+          echo "  SERVICE_NAME: ${SERVICE_NAME:-N/A}"
+          echo "  APPLICATION_KEY: ${APPLICATION_KEY:-N/A}"
+          echo "  PROJECT_KEY: ${{ vars.PROJECT_KEY }}"
+          echo "  BUILD_NAME: ${BUILD_NAME:-N/A}"
+          echo "  BUILD_NUMBER: ${BUILD_NUMBER:-N/A}"
+          
+          # Test JFrog CLI connectivity
+          echo "🔐 Testing JFrog CLI authentication:"
+          jf rt ping
+          
+          # Test evidence CLI directly
+          echo "🛡️ Testing evidence CLI help:"
+          jf evd --help || echo "Evidence CLI help failed"
+          
+          # Create test evidence manually
+          echo "📝 Creating test evidence predicate:"
+          cat > debug-test.json <<JSON
+          {
+            "debug": {
+              "tool": "ManualTest",
+              "status": "TESTING",
+              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+              "service": "${SERVICE_NAME:-checkout}",
+              "buildName": "${BUILD_NAME:-unknown}",
+              "buildNumber": "${BUILD_NUMBER:-unknown}"
+            }
+          }
+          JSON
+          
+          echo "📄 Creating test evidence markdown:"
+          cat > debug-test.md <<'EOF'
+          # Debug Evidence Test
+          
+          This is a manual test of evidence attachment to diagnose OIDC permissions.
+          
+          ## Test Details
+          - **Tool**: Manual Test
+          - **Purpose**: Debugging OIDC permissions for build-info repository
+          - **Status**: Testing
+          EOF
+          
+          # Test evidence attachment to build
+          echo "🧪 Testing evidence attachment to build:"
+          echo "Command: jf evd create-evidence --predicate debug-test.json --markdown debug-test.md --predicate-type 'https://debug.test/manual/v1' --build-name '$BUILD_NAME' --build-number '$BUILD_NUMBER' --project '${{ vars.PROJECT_KEY }}' --key '${{ secrets.EVIDENCE_PRIVATE_KEY }}' --key-alias '${{ vars.EVIDENCE_KEY_ALIAS }}'"
+          
+          jf evd create-evidence \
+            --predicate debug-test.json \
+            --markdown debug-test.md \
+            --predicate-type "https://debug.test/manual/v1" \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
+            --project "${{ vars.PROJECT_KEY }}" \
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "❌ Manual evidence attachment failed"
+          
+          echo "✅ Debug evidence test completed"
+
 
 
 
