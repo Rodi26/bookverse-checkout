@@ -749,22 +749,6 @@ jobs:
             exit 1
           fi
 
-      - name: "[Evidence] Build Evidence"
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-        run: |
-          echo "🏗️ Generating evidence for build-info using shared library"
-          
-          # Source the evidence library
-          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
-          
-          # Build evidence uses auto-detected environment variables
-          
-          # Attach build evidence
-          # Evidence: FOSSA License Scan (dependency license compliance) + SonarQube Quality Gate (code quality analysis)
-          attach_build_evidence
-          
-          echo "✅ Build evidence attached: fossa-license-scan, sonar-quality-gate"
 
 
 
@@ -888,6 +872,23 @@ jobs:
           TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
           if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
           echo "JF_OIDC_TOKEN=$TOKEN" >> $GITHUB_ENV
+
+      - name: "[Evidence] Build Evidence"
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          echo "🏗️ Generating evidence for build-info using shared library"
+          
+          # Source the evidence library
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          
+          # Build evidence uses auto-detected environment variables
+          
+          # Attach build evidence
+          # Evidence: FOSSA License Scan (dependency license compliance) + SonarQube Quality Gate (code quality analysis)
+          attach_build_evidence
+          
+          echo "✅ Build evidence attached: fossa-license-scan, sonar-quality-gate"
 
       - name: "[Diag] Build Info contents"
         run: |
