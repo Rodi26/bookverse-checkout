@@ -25,8 +25,8 @@ jobs:
     name: "Demo: Analyze Commit (Shared Script)"
     runs-on: ubuntu-latest
     outputs:
-      create_app_version: ${{ steps.demo-filter.outputs.create_version }}
-      decision_reason: ${{ steps.demo-filter.outputs.reason }}
+      create_app_version: ${{ steps.demo-filter.outputs.create_app_version }}
+      decision_reason: ${{ steps.demo-filter.outputs.decision_reason }}
       commit_type: ${{ steps.demo-filter.outputs.commit_type }}
     steps:
       - name: "[Setup] Checkout"
@@ -846,7 +846,8 @@ jobs:
 
 
   create-application-version:
-    needs: build-test-publish
+    needs: [analyze-commit, build-test-publish]
+    if: needs.analyze-commit.outputs.create_app_version == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -979,7 +980,6 @@ jobs:
             | jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})'
 
       - name: "[Release] Create application version"
-        if: ${{ needs.analyze-commit.outputs.create_app_version == 'true' }}
         run: |
           echo "🚀 Creating AppTrust application version: $APP_VERSION"
 
@@ -1245,7 +1245,6 @@ jobs:
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ SDLC evidence attachment failed"
 
       - name: "[Auto-Promote] Through Stages"
-        if: ${{ needs.analyze-commit.outputs.create_app_version == 'true' }}
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
