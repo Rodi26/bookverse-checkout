@@ -43,6 +43,8 @@ jobs:
           
       - name: "[Demo] Commit Analysis (Shared bookverse-devops Script)"
         id: demo-filter
+        env:
+          GITHUB_EVENT_INPUTS_FORCE_APP_VERSION: ${{ inputs.force_app_version }}
         run: |
           echo "🔗 Using shared commit analysis script from bookverse-devops"
           echo "📂 Using shared scripts from bookverse-infra repository"
