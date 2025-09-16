@@ -776,6 +776,7 @@ jobs:
 
   create-promote:
     name: "Create Application Version & Promote (Conditional)"
+    runs-on: ubuntu-latest
     needs: [analyze-commit, build-test-publish]
     if: needs.analyze-commit.outputs.create_app_version == 'true' && needs.build-test-publish.result == 'success'
     
