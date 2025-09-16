@@ -2,6 +2,11 @@ name: CI
 
 # DEMO-READY: Automatic triggers enabled for full CI/CD pipeline demonstration
 # PRODUCTION NOTE: Real systems would have additional branch protection and approval gates
+
+# Concurrency control to prevent race conditions when modifying the same objects
+concurrency:
+  group: ci-${{ vars.PROJECT_KEY }}-${{ github.repository }}
+  cancel-in-progress: true
 'on':
   push:
     branches: [main]
@@ -17,12 +22,12 @@ name: CI
       force_app_version:
         description: 'Force application version creation (override commit filter)'
         required: false
-        default: false
+        default: true
         type: boolean
 
 jobs:
   analyze-commit:
-    name: "Demo: Analyze Commit (Shared Script)"
+    name: "Demo: Analyze Commit (Demo-Optimized)"
     runs-on: ubuntu-latest
     outputs:
       create_app_version: ${{ steps.demo-filter.outputs.create_app_version }}
@@ -772,18 +777,23 @@ jobs:
   create-promote:
     name: "Create Application Version & Promote (Conditional)"
     needs: [analyze-commit, build-test-publish]
-    if: needs.analyze-commit.outputs.create_app_version == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
+    if: needs.analyze-commit.outputs.create_app_version == 'true' && needs.build-test-publish.result == 'success'
+    
     permissions:
       contents: read
       id-token: write
 
     env:
-      JFROG_CLI_SIGNING_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+      BUILD_NAME: "bookverse-checkout_CI_create-promote"
+      BUILD_NUMBER: ${{ needs.build-test-publish.outputs.build_number }}
+      SERVICE_NAME: "checkout"
+      APPLICATION_KEY: "bookverse-checkout"
+      APP_VERSION: ${{ needs.build-test-publish.outputs.app_version }}
+      # Common promotion environment variables
       EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+      JFROG_URL: ${{ vars.JFROG_URL }}
+      JF_URL: ${{ vars.JFROG_URL }}
+      PROJECT_KEY: ${{ vars.PROJECT_KEY }}
 
     steps:
       - name: "[Setup] Checkout"
