@@ -55,7 +55,7 @@ jobs:
           echo "✅ Commit analysis completed using shared script"
 
   build-test-publish:
-    name: CI
+    name: "Build & Test (Always Runs)"
     needs: analyze-commit
     runs-on: ubuntu-latest
     defaults:
@@ -749,10 +749,28 @@ jobs:
             exit 1
           fi
 
+      - name: "[Evidence] Build Evidence"
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          echo "🏗️ Generating evidence for build-info"
+          
+          # Source the evidence library
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          
+          # Build evidence uses auto-detected environment variables
+          
+          # Attach build evidence
+          # Evidence: FOSSA License Scan (dependency license compliance) + SonarQube Quality Gate (code quality analysis)
+          attach_build_evidence
+          
+          echo "✅ Build evidence attached: fossa-license-scan, sonar-quality-gate"
 
 
 
-  create-application-version:
+
+  create-promote:
+    name: "Create Application Version & Promote (Conditional)"
     needs: [analyze-commit, build-test-publish]
     if: needs.analyze-commit.outputs.create_app_version == 'true'
     runs-on: ubuntu-latest
@@ -873,22 +891,6 @@ jobs:
           if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
           echo "JF_OIDC_TOKEN=$TOKEN" >> $GITHUB_ENV
 
-      - name: "[Evidence] Build Evidence"
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-        run: |
-          echo "🏗️ Generating evidence for build-info using shared library"
-          
-          # Source the evidence library
-          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
-          
-          # Build evidence uses auto-detected environment variables
-          
-          # Attach build evidence
-          # Evidence: FOSSA License Scan (dependency license compliance) + SonarQube Quality Gate (code quality analysis)
-          attach_build_evidence
-          
-          echo "✅ Build evidence attached: fossa-license-scan, sonar-quality-gate"
 
       - name: "[Diag] Build Info contents"
         run: |
