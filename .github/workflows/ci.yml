@@ -370,10 +370,18 @@ jobs:
         run: |
           echo "📊 Generating evidence for API image package"
           
-          # Evidence attachment for Docker image (placeholder - would include SAST, vulnerability scan, etc.)
-          echo "⚠️ Package evidence generation - placeholder for: SAST scan, vulnerability scan, license check"
-          echo "📦 Package: checkout API Docker image:$IMAGE_TAG"
-          echo "✅ API image package evidence ready (would attach to package in production)"
+          # Source the evidence library
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          
+          # Set package-specific environment variables
+          export PACKAGE_NAME="checkout"
+          export PACKAGE_VERSION="$IMAGE_TAG"
+          
+          # Attach Docker package evidence
+          # Evidence: PyTest Results (unit test coverage) + SAST Scan (static security analysis)
+          attach_docker_package_evidence "$PACKAGE_NAME" "$PACKAGE_VERSION"
+          
+          echo "✅ API image package evidence attached: pytest-results, sast-scan"
 
       - name: "[Artifacts] OpenAPI spec"
         run: |
@@ -389,6 +397,25 @@ jobs:
             --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
           echo "✅ OpenAPI spec generated and uploaded"
 
+      - name: "[Evidence] OpenAPI Package Evidence"
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          echo "📦 Generating evidence for OpenAPI package"
+          
+          # Source the evidence library
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          
+          # Set package-specific environment variables
+          export PACKAGE_NAME="openapi.json"
+          export PACKAGE_VERSION="$OPENAPI_VERSION_TAG"
+          
+          # Attach generic package evidence
+          # Evidence: Config Bundle Verification (API specification validation and integrity)
+          attach_generic_package_evidence "$PACKAGE_NAME" "$PACKAGE_VERSION"
+          
+          echo "✅ OpenAPI package evidence attached: config-bundle"
+
       - name: "[Artifacts] Event contract (order.created)"
         run: |
           set -euo pipefail
@@ -396,6 +423,25 @@ jobs:
           jf rt upload "contracts/order.created.schema.json" "$GENERIC_REPO/$SERVICE_NAME/contracts/order.created/$CONTRACT_VERSION_TAG/order.created.schema.json" \
             --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
           echo "✅ Contract schema uploaded"
+
+      - name: "[Evidence] Contract Package Evidence"
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          echo "📦 Generating evidence for contract package"
+          
+          # Source the evidence library
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          
+          # Set package-specific environment variables
+          export PACKAGE_NAME="order.created.schema.json"
+          export PACKAGE_VERSION="$CONTRACT_VERSION_TAG"
+          
+          # Attach generic package evidence
+          # Evidence: Config Bundle Verification (contract schema validation and integrity)
+          attach_generic_package_evidence "$PACKAGE_NAME" "$PACKAGE_VERSION"
+          
+          echo "✅ Contract package evidence attached: config-bundle"
 
       - name: "[Build] Worker image"
         run: |
@@ -431,10 +477,18 @@ jobs:
         run: |
           echo "📊 Generating evidence for Worker image package"
           
-          # Evidence attachment for Worker Docker image
-          echo "⚠️ Package evidence generation - placeholder for: SAST scan, vulnerability scan, license check"
-          echo "📦 Package: checkout Worker Docker image:$WORKER_TAG"
-          echo "✅ Worker image package evidence ready (would attach to package in production)"
+          # Source the evidence library
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          
+          # Set package-specific environment variables
+          export PACKAGE_NAME="checkout-worker"
+          export PACKAGE_VERSION="$WORKER_TAG"
+          
+          # Attach Docker package evidence
+          # Evidence: PyTest Results (unit test coverage) + SAST Scan (static security analysis)
+          attach_docker_package_evidence "$PACKAGE_NAME" "$PACKAGE_VERSION"
+          
+          echo "✅ Worker image package evidence attached: pytest-results, sast-scan"
 
       - name: "[Build] Migrations image"
         run: |
@@ -988,7 +1042,7 @@ jobs:
           
           echo "✅ Application version evidence attached: slsa-provenance, jira-release"
 
-      # Evidence Plan: App UNASSIGNED – slsa-provenance and jira-tickets (gate to DEV) - LEGACY (keeping for compatibility)
+      # REMOVED: Manual SLSA/Jira evidence (replaced by evidence library attach_application_unassigned_evidence)
       - name: "[Evidence] Prepare UNASSIGNED templates"
         run: |
           set -euo pipefail
