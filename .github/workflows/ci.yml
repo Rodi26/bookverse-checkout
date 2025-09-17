@@ -406,8 +406,8 @@ jobs:
           # Source the evidence library
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
           
-          # Set package-specific environment variables
-          export PACKAGE_NAME="openapi.json"
+          # Set package-specific environment variables (use pattern recognized by evidence library)
+          export PACKAGE_NAME="config"
           export PACKAGE_VERSION="$OPENAPI_VERSION_TAG"
           
           # Attach generic package evidence
@@ -433,8 +433,8 @@ jobs:
           # Source the evidence library
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
           
-          # Set package-specific environment variables
-          export PACKAGE_NAME="order.created.schema.json"
+          # Set package-specific environment variables (use pattern recognized by evidence library)
+          export PACKAGE_NAME="resources"
           export PACKAGE_VERSION="$CONTRACT_VERSION_TAG"
           
           # Attach generic package evidence
@@ -517,6 +517,25 @@ jobs:
           jf docker build -f Dockerfile.migrations -t "$MIGRATIONS_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
           docker push "$MIGRATIONS_IMAGE"
           echo "✅ Built and pushed Migrations image (OIDC docker push + build-info)"
+
+      - name: "[Evidence] Migrations Image Package Evidence"
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          echo "📊 Generating evidence for Migrations image package"
+          
+          # Source the evidence library
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          
+          # Set package-specific environment variables
+          export PACKAGE_NAME="checkout-migrations"
+          export PACKAGE_VERSION="$MIGR_TAG"
+          
+          # Attach Docker package evidence
+          # Evidence: PyTest Results (unit test coverage) + SAST Scan (static security analysis)
+          attach_docker_package_evidence "$PACKAGE_NAME" "$PACKAGE_VERSION"
+          
+          echo "✅ Migrations image package evidence attached: pytest-results, sast-scan"
       - name: "[Evidence] Prepare coverage template"
         run: |
           set -euo pipefail
