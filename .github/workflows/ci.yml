@@ -370,13 +370,15 @@ jobs:
           from app.main import app
           open('dist/openapi/openapi.json','w').write(json.dumps(app.openapi()))
           PY
-          jf rt upload "dist/openapi/openapi.json" "$GENERIC_REPO/$SERVICE_NAME/openapi/$OPENAPI_VERSION_TAG/openapi.json" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt upload "dist/openapi/openapi.json" "$GENERIC_REPO/$SERVICE_NAME/openapi/$OPENAPI_VERSION_TAG/openapi.json" \
+            --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
           echo "✅ OpenAPI spec generated and uploaded"
 
       - name: "[Artifacts] Event contract (order.created)"
         run: |
           set -euo pipefail
-          jf rt upload "contracts/order.created.schema.json" "$GENERIC_REPO/$SERVICE_NAME/contracts/order.created/$CONTRACT_VERSION_TAG/order.created.schema.json" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt upload "contracts/order.created.schema.json" "$GENERIC_REPO/$SERVICE_NAME/contracts/order.created/$CONTRACT_VERSION_TAG/order.created.schema.json" \
+            --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
           echo "✅ Contract schema uploaded"
 
       - name: "[Build] Worker image"
