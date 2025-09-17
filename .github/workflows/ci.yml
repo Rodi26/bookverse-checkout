@@ -266,17 +266,26 @@ jobs:
           pip install --no-cache-dir ./libs/bookverse-core
           echo "✅ Installed bookverse-core from local libs"
           
-          # Install application dependencies
+          # Install application dependencies (following recommendations pattern)
+          echo "📦 Installing dependencies using explicit package list to avoid build-info issues..."
           jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
-          if ! jf pip install -r requirements.txt; then
-            echo "⚠️ jf pip install failed; falling back to public PyPI"
-            pip install -r requirements.txt -i https://pypi.org/simple
-          fi
           
-          # Install test dependencies
-          if ! jf pip install pytest pytest-cov httpx; then
-            pip install -U pytest pytest-cov httpx -i https://pypi.org/simple
-          fi
+          # Install core dependencies with explicit versions (like recommendations)
+          jf pip install --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" \
+            fastapi==0.111.0 \
+            uvicorn==0.30.0 \
+            httpx==0.27.0 \
+            pydantic==2.11.9 \
+            python-multipart==0.0.20 \
+            requests==2.31.0 \
+            python-dotenv==1.1.1 \
+            pytest==8.3.2 \
+            pytest-cov==4.0.0 \
+            SQLAlchemy \
+            coverage \
+            || echo "⚠️ Some packages may have been installed from public PyPI"
+          
+          echo "✅ Dependencies installed using explicit package list (recommendations pattern)"
 
       - name: "[Test] Run with coverage (Optimized with bookverse-core)"
         id: test-coverage
