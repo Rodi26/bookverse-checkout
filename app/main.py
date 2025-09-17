@@ -75,3 +75,13 @@ def on_startup():
 # Include checkout API routes
 app.include_router(router, prefix="/api/v1", tags=["checkout"])
 
+
+def main():
+    """Main entry point for the package script"""
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+if __name__ == "__main__":
+    main()
+
