@@ -392,10 +392,17 @@ jobs:
           from app.main import app
           open('dist/openapi/openapi.json','w').write(json.dumps(app.openapi()))
           PY
+          
+          # Create tar.gz package (following recommendations service pattern)
+          cd dist/openapi
+          tar -czf "checkout-config-$IMAGE_TAG.tar.gz" openapi.json
+          cd ../..
+          
+          # Upload packaged artifact to generic repository
           GENERIC_REPO="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-generic-nonprod-local"
-          jf rt upload "dist/openapi/openapi.json" "$GENERIC_REPO/$SERVICE_NAME/openapi/$OPENAPI_VERSION_TAG/openapi.json" \
+          jf rt upload "dist/openapi/checkout-config-$IMAGE_TAG.tar.gz" "$GENERIC_REPO/$SERVICE_NAME/config/$IMAGE_TAG/checkout-config-$IMAGE_TAG.tar.gz" \
             --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
-          echo "✅ OpenAPI spec generated and uploaded"
+          echo "✅ OpenAPI config package uploaded with version $IMAGE_TAG"
 
       - name: "[Evidence] OpenAPI Package Evidence"
         env:
@@ -406,9 +413,9 @@ jobs:
           # Source the evidence library
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
           
-          # Set package-specific environment variables (use pattern recognized by evidence library)
-          export PACKAGE_NAME="config"
-          export PACKAGE_VERSION="$OPENAPI_VERSION_TAG"
+          # Set package-specific environment variables (use tar.gz package name)
+          export PACKAGE_NAME="checkout-config-$IMAGE_TAG.tar.gz"
+          export PACKAGE_VERSION="$IMAGE_TAG"
           
           # Attach generic package evidence
           # Evidence: Config Bundle Verification (API specification validation and integrity)
@@ -419,10 +426,19 @@ jobs:
       - name: "[Artifacts] Event contract (order.created)"
         run: |
           set -euo pipefail
+          mkdir -p dist/contracts
+          
+          # Create tar.gz package (following recommendations service pattern)
+          cp contracts/order.created.schema.json dist/contracts/
+          cd dist/contracts
+          tar -czf "checkout-resources-$IMAGE_TAG.tar.gz" order.created.schema.json
+          cd ../..
+          
+          # Upload packaged artifact to generic repository
           GENERIC_REPO="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-generic-nonprod-local"
-          jf rt upload "contracts/order.created.schema.json" "$GENERIC_REPO/$SERVICE_NAME/contracts/order.created/$CONTRACT_VERSION_TAG/order.created.schema.json" \
+          jf rt upload "dist/contracts/checkout-resources-$IMAGE_TAG.tar.gz" "$GENERIC_REPO/$SERVICE_NAME/resources/$IMAGE_TAG/checkout-resources-$IMAGE_TAG.tar.gz" \
             --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
-          echo "✅ Contract schema uploaded"
+          echo "✅ Contract resources package uploaded with version $IMAGE_TAG"
 
       - name: "[Evidence] Contract Package Evidence"
         env:
@@ -433,9 +449,9 @@ jobs:
           # Source the evidence library
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
           
-          # Set package-specific environment variables (use pattern recognized by evidence library)
-          export PACKAGE_NAME="resources"
-          export PACKAGE_VERSION="$CONTRACT_VERSION_TAG"
+          # Set package-specific environment variables (use tar.gz package name)
+          export PACKAGE_NAME="checkout-resources-$IMAGE_TAG.tar.gz"
+          export PACKAGE_VERSION="$IMAGE_TAG"
           
           # Attach generic package evidence
           # Evidence: Config Bundle Verification (contract schema validation and integrity)
