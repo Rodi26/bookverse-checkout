@@ -56,7 +56,7 @@ app = create_app(
 
 # Add bookverse-core middleware for request tracking and logging
 app.add_middleware(RequestIDMiddleware)
-app.add_middleware(LoggingMiddleware, service_name="checkout")
+app.add_middleware(LoggingMiddleware)
 
 # Include bookverse-core health router for Kubernetes readiness/liveness
 health_router = create_health_router(
