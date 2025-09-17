@@ -657,6 +657,44 @@ jobs:
       - name: "[Build Info] Publish"
         run: |
           echo "📦 Publishing build-info with all artifacts and Docker images"
+          
+          # Associate Docker images with build-info (required for proper module inclusion)
+          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
+          echo "🔗 Adding docker images to build-info: API=$IMAGE_NAME Worker=$WORKER_IMAGE Migrations=$MIGRATIONS_IMAGE"
+          
+          # Resolve API image digest
+          API_DIGEST=$(docker inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
+          if [[ -z "$API_DIGEST" || "$API_DIGEST" == "<no value>" ]]; then
+            docker pull "$IMAGE_NAME" >/dev/null 2>&1 || true
+            API_DIGEST=$(docker inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
+          fi
+          if [[ -n "$API_DIGEST" && "$API_DIGEST" != "<no value>" ]]; then
+            echo "${IMAGE_NAME%@*}@${API_DIGEST}" > api_image.txt
+            jf rt build-docker-create "$REPO_KEY" --image-file api_image.txt --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
+          fi
+          
+          # Resolve Worker image digest  
+          WORKER_DIGEST=$(docker inspect "$WORKER_IMAGE" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
+          if [[ -z "$WORKER_DIGEST" || "$WORKER_DIGEST" == "<no value>" ]]; then
+            docker pull "$WORKER_IMAGE" >/dev/null 2>&1 || true
+            WORKER_DIGEST=$(docker inspect "$WORKER_IMAGE" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
+          fi
+          if [[ -n "$WORKER_DIGEST" && "$WORKER_DIGEST" != "<no value>" ]]; then
+            echo "${WORKER_IMAGE%@*}@${WORKER_DIGEST}" > worker_image.txt
+            jf rt build-docker-create "$REPO_KEY" --image-file worker_image.txt --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
+          fi
+          
+          # Resolve Migrations image digest
+          MIGRATIONS_DIGEST=$(docker inspect "$MIGRATIONS_IMAGE" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
+          if [[ -z "$MIGRATIONS_DIGEST" || "$MIGRATIONS_DIGEST" == "<no value>" ]]; then
+            docker pull "$MIGRATIONS_IMAGE" >/dev/null 2>&1 || true
+            MIGRATIONS_DIGEST=$(docker inspect "$MIGRATIONS_IMAGE" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
+          fi
+          if [[ -n "$MIGRATIONS_DIGEST" && "$MIGRATIONS_DIGEST" != "<no value>" ]]; then
+            echo "${MIGRATIONS_IMAGE%@*}@${MIGRATIONS_DIGEST}" > migrations_image.txt
+            jf rt build-docker-create "$REPO_KEY" --image-file migrations_image.txt --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
+          fi
+          
           jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
           jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
           if BUILD_PUBLISH_RESULT=$(jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"); then
