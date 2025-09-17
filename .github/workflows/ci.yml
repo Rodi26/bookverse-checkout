@@ -576,55 +576,7 @@ jobs:
           <p align="right">⏰ Report Generated: <code>${NOW_TS}</code> (UTC)</p>
           EOF
 
-      - name: "[Evidence] Attach coverage"
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          DOCKER_REPO="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
-          # Ensure envsubst is available
-          if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          # Prepare predicate JSON using the same timestamp used in markdown
-          cat > coverage-evidence.json <<JSON
-          {
-            "framework": "pytest",
-            "status": "PASSED",
-            "coveragePercent": ${COVERAGE_PERCENT:-0},
-            "generatedAt": "${NOW_TS}",
-            "reports": ["coverage.xml", "htmlcov/index.html"]
-          }
-          JSON
-          # Export variables for envsubst
-          export STATUS="PASSED"
-          export STATUS_EMOJI="✅"
-          export COVERAGE_PERCENT="${COVERAGE_PERCENT:-0}"
-          export NOW_TS="${NOW_TS}"
-          export ANALYSIS_TEXT="Coverage is ${COVERAGE_PERCENT:-0}% with pytest. Aim to keep above 85%. Add tests for critical paths as needed."
-          # Render the template
-          envsubst < coverage-evidence.template.md > coverage-evidence.md
-          # Attach evidence for API image tag
-          jf evd create-evidence \
-            --predicate coverage-evidence.json \
-            --markdown coverage-evidence.md \
-            --predicate-type "https://pytest.org/evidence/results/v1" \
-            --package-name "$SERVICE_NAME" \
-            --package-repo-name "$DOCKER_REPO" \
-            --package-version "$IMAGE_TAG" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Coverage evidence attachment failed"
-          # Attach to worker image as well
-          jf evd create-evidence \
-            --predicate coverage-evidence.json \
-            --markdown coverage-evidence.md \
-            --predicate-type "https://pytest.org/evidence/results/v1" \
-            --package-name "$SERVICE_NAME-worker" \
-            --package-repo-name "$DOCKER_REPO" \
-            --package-version "$WORKER_TAG" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Worker coverage evidence attachment failed"
+      # REMOVED: [Evidence] Attach coverage - now handled by evidence library attach_docker_package_evidence
 
       # Evidence Plan: Package subject – sast-scan (Checkmarx)
       - name: "[Evidence] Prepare SAST template"
@@ -661,71 +613,7 @@ jobs:
           * **Scan Date (UTC)**: `${NOW_TS}`
           EOF
 
-      - name: "[Evidence] Attach SAST (API)"
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          DOCKER_REPO="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
-          if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          # Create predicate JSON
-          cat > sast-evidence.json <<JSON
-          {
-            "sast": {
-              "tool": "Checkmarx",
-              "scanDate": "${NOW_TS}",
-              "summary": {"critical": 0, "high": 0, "medium": 1, "low": 2},
-              "repository": "${{ github.repository }}",
-              "commit": "${{ github.sha }}"
-            }
-          }
-          JSON
-          export NOW_TS="${NOW_TS}"
-          envsubst < sast-evidence.template.md > sast-evidence.md
-          jf evd create-evidence \
-            --predicate sast-evidence.json \
-            --markdown sast-evidence.md \
-            --predicate-type "https://checkmarx.com/evidence/sast/v1.1" \
-            --package-name "$SERVICE_NAME" \
-            --package-repo-name "$DOCKER_REPO" \
-            --package-version "$IMAGE_TAG" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ SAST evidence attachment failed"
-
-      - name: "[Evidence] Attach SAST (Worker)"
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          DOCKER_REPO="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
-          if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          cat > sast-evidence-worker.json <<JSON
-          {
-            "sast": {
-              "tool": "Checkmarx",
-              "scanDate": "${NOW_TS}",
-              "summary": {"critical": 0, "high": 0, "medium": 1, "low": 2},
-              "repository": "${{ github.repository }}",
-              "commit": "${{ github.sha }}",
-              "target": "worker"
-            }
-          }
-          JSON
-          export NOW_TS="${NOW_TS}"
-          envsubst < sast-evidence.template.md > sast-evidence-worker.md
-          jf evd create-evidence \
-            --predicate sast-evidence-worker.json \
-            --markdown sast-evidence-worker.md \
-            --predicate-type "https://checkmarx.com/evidence/sast/v1.1" \
-            --package-name "$SERVICE_NAME-worker" \
-            --package-repo-name "$DOCKER_REPO" \
-            --package-version "$WORKER_TAG" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Worker SAST evidence attachment failed"
+      # REMOVED: [Evidence] Attach SAST (API) and (Worker) - now handled by evidence library attach_docker_package_evidence
 
       - name: "[Build Info] Publish"
         run: |
