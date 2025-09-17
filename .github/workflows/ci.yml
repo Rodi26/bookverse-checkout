@@ -436,102 +436,6 @@ jobs:
           jf docker build -f Dockerfile.migrations -t "$MIGRATIONS_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
           docker push "$MIGRATIONS_IMAGE"
           echo "✅ Built and pushed Migrations image (OIDC docker push + build-info)"
-
-      - name: "[Build Info] Publish"
-        run: |
-          # Associate the pushed Docker images with the build-info before publishing
-          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
-          echo "🔗 Adding docker images to build-info: API=$IMAGE_NAME Worker=$WORKER_IMAGE Migrations=$MIGRATIONS_IMAGE repo=$REPO_KEY"
-          
-          # Resolve API image digest and write in required format: image:tag@sha256:...
-          API_DIGEST=$(docker inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
-          if [[ -z "$API_DIGEST" || "$API_DIGEST" == "<no value>" ]]; then
-            docker pull "$IMAGE_NAME" >/dev/null 2>&1 || true
-            API_DIGEST=$(docker inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
-          fi
-          if [[ -z "$API_DIGEST" || "$API_DIGEST" == "<no value>" ]]; then
-            echo "❌ Could not resolve API image digest for $IMAGE_NAME" >&2; exit 1
-          fi
-          
-          # Resolve Worker image digest and write in required format: image:tag@sha256:...
-          WORKER_DIGEST=$(docker inspect "$WORKER_IMAGE" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
-          if [[ -z "$WORKER_DIGEST" || "$WORKER_DIGEST" == "<no value>" ]]; then
-            docker pull "$WORKER_IMAGE" >/dev/null 2>&1 || true
-            WORKER_DIGEST=$(docker inspect "$WORKER_IMAGE" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
-          fi
-          if [[ -z "$WORKER_DIGEST" || "$WORKER_DIGEST" == "<no value>" ]]; then
-            echo "❌ Could not resolve Worker image digest for $WORKER_IMAGE" >&2; exit 1
-          fi
-          
-          # Resolve Migrations image digest and write in required format: image:tag@sha256:...
-          MIGRATIONS_DIGEST=$(docker inspect "$MIGRATIONS_IMAGE" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
-          if [[ -z "$MIGRATIONS_DIGEST" || "$MIGRATIONS_DIGEST" == "<no value>" ]]; then
-            docker pull "$MIGRATIONS_IMAGE" >/dev/null 2>&1 || true
-            MIGRATIONS_DIGEST=$(docker inspect "$MIGRATIONS_IMAGE" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
-          fi
-          if [[ -z "$MIGRATIONS_DIGEST" || "$MIGRATIONS_DIGEST" == "<no value>" ]]; then
-            echo "❌ Could not resolve Migrations image digest for $MIGRATIONS_IMAGE" >&2; exit 1
-          fi
-          
-          # Associate API image with build info (separate call like working recommendations)
-          echo "${IMAGE_NAME%@*}@${API_DIGEST}" > api_image.txt
-          jf rt build-docker-create "$REPO_KEY" \
-            --image-file api_image.txt \
-            --build-name "$BUILD_NAME" \
-            --build-number "$BUILD_NUMBER" \
-            --project "${{ vars.PROJECT_KEY }}"
-          
-          # Associate Worker image with build info (separate call like working recommendations)
-          echo "${WORKER_IMAGE%@*}@${WORKER_DIGEST}" > worker_image.txt
-          jf rt build-docker-create "$REPO_KEY" \
-            --image-file worker_image.txt \
-            --build-name "$BUILD_NAME" \
-            --build-number "$BUILD_NUMBER" \
-            --project "${{ vars.PROJECT_KEY }}"
-          
-          # Associate Migrations image with build info (separate call like working recommendations)
-          echo "${MIGRATIONS_IMAGE%@*}@${MIGRATIONS_DIGEST}" > migrations_image.txt
-          jf rt build-docker-create "$REPO_KEY" \
-            --image-file migrations_image.txt \
-            --build-name "$BUILD_NAME" \
-            --build-number "$BUILD_NUMBER" \
-            --project "${{ vars.PROJECT_KEY }}"
-          
-          jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
-          jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
-          if BUILD_PUBLISH_RESULT=$(jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"); then
-            echo "BUILD_INFO_PUBLISH_STATUS=SUCCESS" >> $GITHUB_ENV
-            
-            # Extract timestamp from build publish result (optimized - no extra API call)
-            # Parse the UI URL from JFrog CLI log output instead of non-existent JSON field
-            BUILD_UI_URL=$(echo "$BUILD_PUBLISH_RESULT" | grep -o 'https://[^[:space:]]*builds/[^[:space:]]*' | head -1 || echo "")
-            
-            if [[ -n "$BUILD_UI_URL" ]]; then
-              # Extract epoch milliseconds from UI URL: .../builds/NAME/NUMBER/TIMESTAMP/published
-              EPOCH_MS=$(echo "$BUILD_UI_URL" | sed -n 's|.*/builds/[^/]*/[^/]*/\([0-9]*\)/published.*|\1|p')
-              
-              if [[ -n "$EPOCH_MS" && "$EPOCH_MS" =~ ^[0-9]+$ ]]; then
-                # Convert to JFrog's exact timestamp format: YYYY-MM-DDTHH:MM:SS.mmm+0000
-                EPOCH_SEC=$((EPOCH_MS / 1000))
-                MILLISECS=$((EPOCH_MS % 1000))
-                BUILD_STARTED_TIMESTAMP=$(date -u -r "$EPOCH_SEC" "+%Y-%m-%dT%H:%M:%S" 2>/dev/null || date -u -d "@$EPOCH_SEC" "+%Y-%m-%dT%H:%M:%S")
-                BUILD_STARTED_TIMESTAMP="${BUILD_STARTED_TIMESTAMP}.$(printf "%03d" $MILLISECS)+0000"
-                
-                echo "BUILD_STARTED_TIMESTAMP=$BUILD_STARTED_TIMESTAMP" >> $GITHUB_ENV
-                echo "✅ Extracted timestamp from build publish result: $BUILD_STARTED_TIMESTAMP"
-              else
-                echo "⚠️ Could not extract valid timestamp from UI URL: $BUILD_UI_URL"
-              fi
-            else
-              echo "⚠️ Could not extract build UI URL from publish result"
-            fi
-          else
-            echo "BUILD_INFO_PUBLISH_STATUS=FAILED" >> $GITHUB_ENV
-            echo "❌ Failed to publish build info" >&2
-            exit 1
-          fi
-
-      # Evidence Plan: Package subject – unit-tests (pytest)
       - name: "[Evidence] Prepare coverage template"
         run: |
           set -euo pipefail
@@ -720,42 +624,6 @@ jobs:
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Worker SAST evidence attachment failed"
 
-
-      - name: "[Build Info] Publish"
-        run: |
-          jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
-          jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
-          if BUILD_PUBLISH_RESULT=$(jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"); then
-            echo "BUILD_INFO_PUBLISH_STATUS=SUCCESS" >> $GITHUB_ENV
-            
-            # Extract timestamp from build publish result (optimized - no extra API call)
-            # Parse the UI URL from JFrog CLI log output instead of non-existent JSON field
-            BUILD_UI_URL=$(echo "$BUILD_PUBLISH_RESULT" | grep -o 'https://[^[:space:]]*builds/[^[:space:]]*' | head -1 || echo "")
-            
-            if [[ -n "$BUILD_UI_URL" ]]; then
-              # Extract epoch milliseconds from UI URL: .../builds/NAME/NUMBER/TIMESTAMP/published
-              EPOCH_MS=$(echo "$BUILD_UI_URL" | sed -n 's|.*/builds/[^/]*/[^/]*/\([0-9]*\)/published.*|\1|p')
-              
-              if [[ -n "$EPOCH_MS" && "$EPOCH_MS" =~ ^[0-9]+$ ]]; then
-                # Convert to JFrog's exact timestamp format: YYYY-MM-DDTHH:MM:SS.mmm+0000
-                EPOCH_SEC=$((EPOCH_MS / 1000))
-                MILLISECS=$((EPOCH_MS % 1000))
-                BUILD_STARTED_TIMESTAMP=$(date -u -r "$EPOCH_SEC" "+%Y-%m-%dT%H:%M:%S" 2>/dev/null || date -u -d "@$EPOCH_SEC" "+%Y-%m-%dT%H:%M:%S")
-                BUILD_STARTED_TIMESTAMP="${BUILD_STARTED_TIMESTAMP}.$(printf "%03d" $MILLISECS)+0000"
-                
-                echo "BUILD_STARTED_TIMESTAMP=$BUILD_STARTED_TIMESTAMP" >> $GITHUB_ENV
-                echo "✅ Extracted timestamp from build publish result: $BUILD_STARTED_TIMESTAMP"
-              else
-                echo "⚠️ Could not extract valid timestamp from UI URL: $BUILD_UI_URL"
-              fi
-            else
-              echo "⚠️ Could not extract build UI URL from publish result"
-            fi
-          else
-            echo "BUILD_INFO_PUBLISH_STATUS=FAILED" >> $GITHUB_ENV
-            exit 1
-          fi
-
       - name: "[Evidence] Build Evidence"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
@@ -772,10 +640,6 @@ jobs:
           attach_build_evidence
           
           echo "✅ Build evidence attached: fossa-license-scan, sonar-quality-gate"
-
-
-
-
 
   create-promote:
     name: "Create Application Version & Promote (Conditional)"
@@ -904,7 +768,6 @@ jobs:
           TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
           if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
           echo "JF_OIDC_TOKEN=$TOKEN" >> $GITHUB_ENV
-
 
       - name: "[Diag] Build Info contents"
         run: |
