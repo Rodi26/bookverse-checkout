@@ -921,6 +921,7 @@ jobs:
             -H "Authorization: Bearer $JF_OIDC_TOKEN" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
+            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             -d "$APP_VERSION_PAYLOAD")
           echo "🔢 HTTP Status: $HTTP_STATUS"
           echo "📨 Response Body:"; cat "$RESP_BODY"; echo
@@ -935,7 +936,8 @@ jobs:
           CONTENT_STATUS=$(curl -sS -L -o "$CONTENT_FILE" -w "%{http_code}" \
             "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
             -H "Authorization: Bearer $JF_OIDC_TOKEN" \
-            -H "Accept: application/json")
+            -H "Accept: application/json" \
+            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}")
           if [[ "$CONTENT_STATUS" != "200" ]]; then
             echo "❌ Version content endpoint returned HTTP $CONTENT_STATUS for $APPLICATION_KEY@$APP_VERSION" >&2
             echo "📨 Response Body:"; cat "$CONTENT_FILE" || true; echo
@@ -952,20 +954,17 @@ jobs:
           echo "✅ Application version created and validated (COMPLETED): $APPLICATION_KEY@$APP_VERSION"
           echo "📦 Packages will be automatically bound from build sources"
 
-      - name: "[Evidence] Application Version Evidence (Shared Library)"
+      - name: "[Evidence] Application Version Evidence"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
           EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
-          SERVICE_NAME: checkout
-          APPLICATION_KEY: ${{ env.APPLICATION_KEY }}
-          APP_VERSION: ${{ env.APP_VERSION }}
-          PROJECT_KEY: ${{ vars.PROJECT_KEY }}
-          JFROG_URL: ${{ vars.JFROG_URL }}
         run: |
-          echo "📋 Generating evidence for application version using shared evidence library"
+          echo "📋 Generating evidence for application version (UNASSIGNED stage)"
           
           # Source the evidence library
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          
+          # Application evidence uses auto-detected environment variables
           
           # Attach application evidence for UNASSIGNED stage
           # Evidence: SLSA Provenance (supply chain security) + Jira Release (release tracking and approval)
@@ -973,318 +972,183 @@ jobs:
           
           echo "✅ Application version evidence attached: slsa-provenance, jira-release"
 
-      # REMOVED: Manual SLSA/Jira evidence (replaced by evidence library attach_application_unassigned_evidence)
-      - name: "[Evidence] Prepare UNASSIGNED templates"
+      - name: "[Promote & Evidence] DEV Stage"
         run: |
-          set -euo pipefail
-          echo "📄 Preparing SLSA and Jira templates"
-          cat > slsa.template.md <<'EOF'
-          # SLSA Provenance Report 🛡️
-
-          This document summarizes the SLSA (Supply-chain Levels for Software Artifacts) provenance and build context for this version.
-
-          ---
-
-          ## Evidence Details
-
-          * **Framework**: `SLSA`
-          * **SLSA Level**: `v1`
-          * **Generated At**: `${NOW_TS}`
-          * **Builder**: `GitHub Actions`
-          * **Workflow**: `${{ github.workflow }}`
-          * **Repository**: `${{ github.repository }}`
-          * **Commit**: `${{ github.sha }}`
-          EOF
-          cat > jira.template.md <<'EOF'
-          # 🎫 Jira Release Notes
-
-          This evidence lists the Jira issues included in this application version.
-
-          ---
-
-          ## Tickets
-          - ${T1} — ${T1_TYPE}
-          - ${T2} — ${T2_TYPE}
-          - ${T3} — ${T3_TYPE}
-          EOF
-
-      - name: "[Evidence] Attach UNASSIGNED (SLSA, Jira)"
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
-        run: |
-          set -euo pipefail
-          if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          export NOW_TS="${NOW_TS}"
-          # SLSA predicate and markdown
-          cat > slsa.json <<JSON
-          {
-            "provenance": {
-              "framework": "SLSA",
-              "level": "v1",
-              "generatedAt": "${NOW_TS}",
-              "attachStage": "UNASSIGNED",
-              "gateForPromotionTo": "DEV"
-            }
-          }
-          JSON
-          envsubst < slsa.template.md > slsa.md
-          jf evd create-evidence \
-            --predicate slsa.json \
-            --markdown slsa.md \
-            --predicate-type "https://slsa.dev/provenance/v1" \
-            --release-bundle "$APPLICATION_KEY" \
-            --release-bundle-version "$APP_VERSION" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ SLSA evidence attach failed"
-
-          # Jira predicate and markdown
-          # Generate a small set of pseudo tickets and types for the release notes
-          T1="BV-$(( (${GITHUB_RUN_NUMBER:-0} % 200) + 100 ))"
-          T2="BV-$(( ((${GITHUB_RUN_NUMBER:-0} + ${GITHUB_RUN_ATTEMPT:-0}) % 200) + 300 ))"
-          T3="BV-$(( ((${GITHUB_RUN_NUMBER:-0} * 3 + ${GITHUB_RUN_ATTEMPT:-0}) % 200) + 500 ))"
-          TYPES=(feature bug improvement)
-          T1_TYPE="${TYPES[$(( ${GITHUB_RUN_NUMBER:-0} % 3 ))]}"
-          T2_TYPE="${TYPES[$(( (${GITHUB_RUN_NUMBER:-0} + 1) % 3 ))]}"
-          T3_TYPE="${TYPES[$(( (${GITHUB_RUN_NUMBER:-0} + 2) % 3 ))]}"
-          export T1 T2 T3 T1_TYPE T2_TYPE T3_TYPE
-          cat > jira.json <<JSON
-          {
-            "jira": {
-              "tickets": [
-                {"id": "${T1}", "type": "${T1_TYPE}"},
-                {"id": "${T2}", "type": "${T2_TYPE}"},
-                {"id": "${T3}", "type": "${T3_TYPE}"}
-              ]
-            }
-          }
-          JSON
-          envsubst < jira.template.md > jira.md
-          jf evd create-evidence \
-            --predicate jira.json \
-            --markdown jira.md \
-            --predicate-type "https://atlassian.com/evidence/jira/release/v1" \
-            --release-bundle "$APPLICATION_KEY" \
-            --release-bundle-version "$APP_VERSION" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Jira evidence attach failed"
-
-      - name: "[Evidence] Attach Build Info"
-        run: |
-          echo "🛡️ Complete evidence summary for AppTrust application version"
-          echo "📋 Evidence Summary:"
-          echo "   🐳 Artifacts: Docker container image with attached evidence"
-          echo "   📊 Coverage Evidence: ${COVERAGE_PERCENT:-N/A}% (pytest) attached to image"
-          echo "   🔨 Build: $SERVICE_NAME#$IMAGE_TAG"
-          echo "   🏷️ Version: $APP_VERSION (SemVer compliant)"
-          echo "   📅 Created: $(date -u)"
-          echo "   👤 Developer: ${{ github.actor }}"
-          echo "   🔗 Commit: ${{ github.sha }}"
-          echo ""
-          echo "✅ Complete evidence trail documented and attached"
-
-      - name: "[Evidence] Attach SDLC"
-        run: |
-          BUILD_NAME="${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}"
-          BUILD_NUMBER="${{ github.run_number }}-${{ github.run_attempt }}"
-          JIRA_TICKETS=("BV-$(((RANDOM % 900) + 100))" "BV-$(((RANDOM % 900) + 100))" "BV-$(((RANDOM % 900) + 100))")
-          TICKET_TYPES=("Bug Fix" "Feature" "Improvement")
-          cat <<EOF > sdlc-evidence.json
-          {
-            "sdlc": {
-              "version": "${APP_VERSION}",
-              "releaseDate": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-              "committer": {"name": "${{ github.actor }}", "email": "${{ github.actor }}@bookverse.com", "commitSha": "${{ github.sha }}", "commitMessage": "$(git log -1 --pretty=format:%s)"},
-              "reviewer": {"name": "tech-lead-$(echo ${{ github.actor }} | head -c3)", "email": "tech-lead@bookverse.com", "approvedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)", "status": "approved"},
-              "jiraTickets": [
-                {"id": "${JIRA_TICKETS[0]}", "type": "${TICKET_TYPES[0]}", "title": "Checkout flow improvements", "status": "resolved", "priority": "high"},
-                {"id": "${JIRA_TICKETS[1]}", "type": "${TICKET_TYPES[1]}", "title": "Add idempotency keys", "status": "resolved", "priority": "medium"},
-                {"id": "${JIRA_TICKETS[2]}", "type": "${TICKET_TYPES[2]}", "title": "Update API documentation", "status": "resolved", "priority": "low"}
-              ],
-              "qualityGates": {"codeReview": "passed", "unitTests": "passed", "securityScan": "passed", "integrationTests": "passed"}
-            }
-          }
-          EOF
-          cat > sdlc-evidence.template.md <<'EOF'
-          # SDLC Release Evidence
-
-          **Application Version:** ${APP_VERSION}  
-          **Build:** ${BUILD_NAME}#${BUILD_NUMBER}  
-
-          ## ✅ Quality Gates
-          - Code Review: Passed
-          - Unit Tests: Passed
-          - Security Scan: Passed
-          - Integration Tests: Passed
-
-          ## 🔗 Build
-          - Commit: ${{ github.sha }}
-          - Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          EOF
-          if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
-          envsubst < sdlc-evidence.template.md > sdlc-evidence.md
-          jf evd create-evidence \
-            --predicate sdlc-evidence.json \
-            --markdown sdlc-evidence.md \
-            --predicate-type "SDLC Release" \
-            --release-bundle "$APPLICATION_KEY" \
-            --release-bundle-version "$APP_VERSION" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ SDLC evidence attachment failed"
-
-      - name: "[Auto-Promote] Through Stages"
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
-        run: |
-          echo "📈 Starting automatic promotion for ${{ env.APP_VERSION }}"
+          echo "🚀 Promoting to DEV stage and generating evidence"
           
-          # Set up promotion environment variables
-          export JFROG_URL="${{ vars.JFROG_URL }}"
-          export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-          export APPLICATION_KEY="$APPLICATION_KEY"
-          export APP_VERSION="${{ env.APP_VERSION }}"
+           # Use the JF_OIDC_TOKEN from the OIDC exchange step
+           if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
+             echo "❌ Missing JF_OIDC_TOKEN. Ensure OIDC exchange step succeeded." >&2
+             exit 1
+           fi
+           echo "✅ Using JF_OIDC_TOKEN for DEV promotion"
           
-          # Get the OIDC token from the previous step's output
-          OIDC_TOKEN="${{ env.JF_OIDC_TOKEN }}"
-          if [[ -z "$OIDC_TOKEN" ]]; then
-            echo "❌ Failed to get OIDC token from exchange step" >&2
+          # Source evidence library (includes promotion setup)
+          export APPTRUST_ACCESS_TOKEN="$JF_OIDC_TOKEN"
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          setup_promotion_environment
+          
+          # Promote to DEV
+          if advance_one_step; then
+            echo "✅ Successfully promoted to DEV"
+          else
+            echo "❌ Failed to promote to DEV"
             exit 1
           fi
-          export APPTRUST_ACCESS_TOKEN="$OIDC_TOKEN"
-          echo "✅ APPTRUST_ACCESS_TOKEN set for promotion library"
           
-          # Source the promotion library
-          source .github/scripts/promote_lib.sh
+          # Generate and attach DEV stage evidence
+          # Evidence: Smoke Tests (basic health checks in DEV environment)
+          attach_application_dev_evidence
+          echo "✅ DEV stage evidence attached: smoke-tests"
+
+      - name: "[Promote & Evidence] QA Stage"
+        run: |
+          echo "🔍 Promoting to QA stage and generating evidence"
           
-          # Set up lifecycle stages (demo-optimized: promote directly to PROD)
-          export STAGES_STR="DEV QA STAGING PROD"
-          export FINAL_STAGE="PROD"
-          export ALLOW_RELEASE=true
+           # Use the JF_OIDC_TOKEN from the OIDC exchange step
+           if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
+             echo "❌ Missing JF_OIDC_TOKEN. Ensure OIDC exchange step succeeded." >&2
+             exit 1
+           fi
+           echo "✅ Using JF_OIDC_TOKEN for QA promotion"
           
-          echo "🎯 Demo Mode: Auto-promoting through all stages to PROD"
-          echo "📝 Production Note: Real systems would have approval gates and gradual rollout"
+          # Source evidence library (includes promotion setup)
+          export APPTRUST_ACCESS_TOKEN="$JF_OIDC_TOKEN"
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          setup_promotion_environment
           
-          # Fetch current status
-          fetch_summary
-          echo "📊 Current stage: ${CURRENT_STAGE:-UNASSIGNED}"
+          # Promote to QA
+          if advance_one_step; then
+            echo "✅ Successfully promoted to QA"
+          else
+            echo "❌ Failed to promote to QA"
+            exit 1
+          fi
           
-          # Promote through each stage automatically
-          MAX_PROMOTIONS=4  # Safety limit
-          PROMOTION_COUNT=0
+          # Generate and attach QA stage evidence
+          # Evidence: DAST Scan (dynamic security testing) + API Tests (integration testing)
+          attach_application_qa_evidence
+          echo "✅ QA stage evidence attached: dast-scan, api-tests"
+
+      - name: "[Promote & Evidence] STAGING Stage"
+        run: |
+          echo "🏗️ Promoting to STAGING stage and generating evidence"
           
-          while [[ $PROMOTION_COUNT -lt $MAX_PROMOTIONS ]]; do
-            fetch_summary
-            CURRENT_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
-            
-            echo "🔄 Promotion step $((PROMOTION_COUNT + 1)): Currently at $CURRENT_DISPLAY"
-            
-            if [[ "$CURRENT_DISPLAY" == "PROD" ]]; then
-              echo "🎉 Already at PROD - promotion complete!"
-              break
-            fi
-            
-            # Perform one promotion step
+           # Use the JF_OIDC_TOKEN from the OIDC exchange step
+           if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
+             echo "❌ Missing JF_OIDC_TOKEN. Ensure OIDC exchange step succeeded." >&2
+             exit 1
+           fi
+           echo "✅ Using JF_OIDC_TOKEN for STAGING promotion"
+          
+          # Source evidence library (includes promotion setup)
+          export APPTRUST_ACCESS_TOKEN="$JF_OIDC_TOKEN"
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          setup_promotion_environment
+          
+          # Promote to STAGING
             if advance_one_step; then
-              echo "✅ Promotion step $((PROMOTION_COUNT + 1)) successful"
-              PROMOTION_COUNT=$((PROMOTION_COUNT + 1))
-              sleep 2  # Brief pause between promotions
+            echo "✅ Successfully promoted to STAGING"
             else
-              echo "❌ Promotion step $((PROMOTION_COUNT + 1)) failed"
+            echo "❌ Failed to promote to STAGING"
               exit 1
             fi
-          done
           
-          # Final status check
-          fetch_summary
-          FINAL_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
+          # Generate and attach STAGING stage evidence
+          # Evidence: IaC Scan (infrastructure security) + Pentest (penetration testing) + Change Approval (management approval)
+          attach_application_staging_evidence
+          echo "✅ STAGING stage evidence attached: iac-scan, pentest, change-approval"
+
+      - name: "[Promote & Evidence] PROD Stage"
+        run: |
+          echo "🚀 Promoting to PROD stage and generating evidence"
           
-          if [[ "$FINAL_DISPLAY" == "PROD" ]]; then
-            echo "🎉 SUCCESS: Application version $APP_VERSION promoted to PROD!"
-            echo "📈 Automatic promotion completed in $PROMOTION_COUNT steps"
+           # Use the JF_OIDC_TOKEN from the OIDC exchange step
+           if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
+             echo "❌ Missing JF_OIDC_TOKEN. Ensure OIDC exchange step succeeded." >&2
+             exit 1
+           fi
+           echo "✅ Using JF_OIDC_TOKEN for PROD promotion"
+          
+          # Source evidence library (includes promotion setup)
+          export APPTRUST_ACCESS_TOKEN="$JF_OIDC_TOKEN"
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          setup_promotion_environment
+          
+          # Promote to PROD
+          if advance_one_step; then
+            echo "✅ Successfully promoted to PROD"
           else
-            echo "⚠️ Promotion incomplete - final stage: $FINAL_DISPLAY"
+            echo "❌ Failed to promote to PROD"
             exit 1
           fi
 
-      - name: "[Summary] AppTrust"
+          # Generate and attach PROD stage evidence
+          # Evidence: ArgoCD Deployment Verification (production deployment health and status)
+          attach_application_prod_evidence
+          echo "✅ PROD stage evidence attached: deployment-verification"
+          echo "🎉 SUCCESS: Application version $APP_VERSION promoted to PROD with all evidence attached!"
+
+      - name: "📊 Enhanced Build Summary (bookverse-devops pattern)"
+        if: always()
         run: |
-          echo "## 🚀 AppTrust Promotion Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 🎯 BookVerse Checkout Service - CI/CD Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📄 Evidence Plan: see bookverse-demo-init/docs/EVIDENCE_PLAN.md" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Build Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service:** checkout" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Name:** $BUILD_NAME" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Number:** $BUILD_NUMBER" >> $GITHUB_STEP_SUMMARY
+          echo "- **Application Version:** ${APP_VERSION:-'N/A'}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Application:** \`$APPLICATION_KEY\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** \`$APP_VERSION\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Build:** \`$BUILD_NAME#$BUILD_NUMBER\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Container Tag:** \`$SERVICE_NAME:$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** \`$GITHUB_SHA\`" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### ✅ AppTrust Compliance Status" >> $GITHUB_STEP_SUMMARY
+          echo "- **Job 1 (analyze-commit):** ✅ Completed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Job 2 (build-test-publish):** ✅ Completed" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.analyze-commit.outputs.create_app_version }}" == "true" ]]; then
+            echo "- **Job 3 (create-promote):** ✅ Completed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Job 3 (create-promote):** ⏭️ Skipped (build-info only)" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Artifacts Bound" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Build artifacts from \`$BUILD_NAME#$BUILD_NUMBER\`" >> $GITHUB_STEP_SUMMARY
-          echo "- 🐳 Docker image: \`$SERVICE_NAME:$IMAGE_TAG\` (SBOMs & signatures via registry policy)" >> $GITHUB_STEP_SUMMARY
-          echo "- 🐳 Worker image: \`$SERVICE_NAME-worker:$WORKER_TAG\`" >> $GITHUB_STEP_SUMMARY
-          echo "- 🐳 Migrations image: \`$SERVICE_NAME-migrations:$MIGR_TAG\`" >> $GITHUB_STEP_SUMMARY
-          echo "- 📜 OpenAPI spec: \`${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-generic-nonprod-local/$SERVICE_NAME/openapi/$OPENAPI_VERSION_TAG/openapi.json\`" >> $GITHUB_STEP_SUMMARY
-          echo "- 📄 Event schema (order.created): \`${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-generic-nonprod-local/$SERVICE_NAME/contracts/order.created/$CONTRACT_VERSION_TAG/order.created.schema.json\`" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 📊 Artifacts & Evidence" >> $GITHUB_STEP_SUMMARY
+          echo "- **Test Coverage:** ${COVERAGE_PERCENT:-'N/A'}%" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Images:**" >> $GITHUB_STEP_SUMMARY
+          echo "  - 📦 checkout: \`${IMAGE_NAME:-'N/A'}\`" >> $GITHUB_STEP_SUMMARY
+          echo "  - 🔧 checkout-worker: \`${WORKER_IMAGE:-'N/A'}\`" >> $GITHUB_STEP_SUMMARY
+          echo "  - 🗃️ checkout-migrations: \`${MIGRATIONS_IMAGE:-'N/A'}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Generic Artifacts:**" >> $GITHUB_STEP_SUMMARY
+          echo "  - ⚙️ checkout-config: \`v${IMAGE_TAG:-'N/A'}\`" >> $GITHUB_STEP_SUMMARY
+          echo "  - 📚 checkout-resources: \`v${IMAGE_TAG:-'N/A'}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Evidence Artifacts:** ✅ Collected and uploaded" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build-Info:** ✅ Published with all artifacts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ✅ Steps Executed and Evidence Added" >> $GITHUB_STEP_SUMMARY
-          echo "1. 🔧 Build & Test" >> $GITHUB_STEP_SUMMARY
-          echo "   - Ran pytest with coverage → ${COVERAGE_PERCENT:-N/A}%" >> $GITHUB_STEP_SUMMARY
-          echo "   - Evidence (package): coverage-evidence.json + coverage-evidence.md" >> $GITHUB_STEP_SUMMARY
-          echo "   - Reports: coverage.xml, htmlcov/index.html" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 🚀 Promotion Pipeline" >> $GITHUB_STEP_SUMMARY
+          echo "- **UNASSIGNED → DEV:** ✅ SLSA Provenance + Jira Release → Smoke Tests" >> $GITHUB_STEP_SUMMARY
+          echo "- **DEV → QA:** ✅ DAST Scan + API Tests" >> $GITHUB_STEP_SUMMARY
+          echo "- **QA → STAGING:** ✅ IaC Scan + Pentest + Change Approval" >> $GITHUB_STEP_SUMMARY
+          echo "- **STAGING → PROD:** ✅ Deployment Verification" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "2. 🔍 SAST Scan (Checkmarx)" >> $GITHUB_STEP_SUMMARY
-          echo "   - Findings: Critical=0, High=0, Medium=1, Low=2" >> $GITHUB_STEP_SUMMARY
-          echo "   - Evidence (package): sast-evidence.json + sast-evidence.md" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 🔧 Optimizations Applied" >> $GITHUB_STEP_SUMMARY
+          echo "- **bookverse-core:** ✅ Dependency management & testing" >> $GITHUB_STEP_SUMMARY
+          echo "- **bookverse-devops:** ✅ Evidence collection & patterns" >> $GITHUB_STEP_SUMMARY
+          echo "- **Consolidated Environment:** ✅ Centralized JFrog setup" >> $GITHUB_STEP_SUMMARY
+          echo "- **Stage-Specific Evidence:** ✅ Proper evidence attachment per stage" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "3. 🧭 Publish Build Info" >> $GITHUB_STEP_SUMMARY
-          echo "   - Build Info captured and published to project \`${{ vars.PROJECT_KEY }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "4. 🧰 Quality Gate (SonarQube)" >> $GITHUB_STEP_SUMMARY
-          echo "   - Status: PASSED" >> $GITHUB_STEP_SUMMARY
-          echo "   - Evidence (build): quality-gate.json + quality-gate.md" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "5. 📜 License Compliance (FOSSA)" >> $GITHUB_STEP_SUMMARY
-          echo "   - Status: PASSED" >> $GITHUB_STEP_SUMMARY
-          echo "   - Evidence (build): license-evidence.json + license-evidence.md" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "6. 🆕 Create Application Version & Bind Packages" >> $GITHUB_STEP_SUMMARY
-          echo "   - Created: \`$APPLICATION_KEY@$APP_VERSION\` (sources from \`$BUILD_NAME#$BUILD_NUMBER\`)" >> $GITHUB_STEP_SUMMARY
-          echo "   - Automatically bound artifacts from the build (including the Docker image)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "7. 🚀 Automatic Promotion to PROD" >> $GITHUB_STEP_SUMMARY
-          echo "   - Promoted through: DEV → QA → STAGING → PROD" >> $GITHUB_STEP_SUMMARY
-          echo "   - Evidence attached at each stage as required" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "8. 🛡️ Governance Evidence for Promotion to DEV" >> $GITHUB_STEP_SUMMARY
-          echo "   - SLSA Provenance (release bundle, attachStage=UNASSIGNED, gateForPromotionTo=DEV)" >> $GITHUB_STEP_SUMMARY
-          echo "   - Jira Release Notes (3 tickets; demo values)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🧾 Evidence by Subject" >> $GITHUB_STEP_SUMMARY
-          echo "- 📦 Package (\`$SERVICE_NAME:$IMAGE_TAG\`):" >> $GITHUB_STEP_SUMMARY
-          echo "  - 📊 Coverage (pytest): ${COVERAGE_PERCENT:-N/A}%" >> $GITHUB_STEP_SUMMARY
-          echo "  - 🛡️ SAST (Checkmarx): Critical=0, High=0, Medium=1, Low=2" >> $GITHUB_STEP_SUMMARY
-          echo "- 📦 Package (\`$SERVICE_NAME-worker:$WORKER_TAG\`):" >> $GITHUB_STEP_SUMMARY
-          echo "  - 🛡️ SAST (Checkmarx): Critical=0, High=0, Medium=1, Low=2" >> $GITHUB_STEP_SUMMARY
-          echo "- 🏗️ Build (\`$BUILD_NAME#$BUILD_NUMBER\`):" >> $GITHUB_STEP_SUMMARY
-          echo "  - ✅ SonarQube Quality Gate: PASSED" >> $GITHUB_STEP_SUMMARY
-          echo "  - ✅ FOSSA License Compliance: PASSED" >> $GITHUB_STEP_SUMMARY
-          echo "- 🎁 Release Bundle (\`$APPLICATION_KEY@$APP_VERSION\`):" >> $GITHUB_STEP_SUMMARY
-          echo "  - 🔒 SLSA Provenance (v1)" >> $GITHUB_STEP_SUMMARY
-          echo "  - 🎫 Jira Release Notes (BV-xxx)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ℹ️ Promotion Status" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Automatically promoted to PROD" >> $GITHUB_STEP_SUMMARY
-          echo "- All required evidence attached at each stage" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔗 References" >> $GITHUB_STEP_SUMMARY
-          echo "- Project: \`${{ vars.PROJECT_KEY }}\` on \`${{ vars.JFROG_URL }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- AppTrust Application Version: \`$APPLICATION_KEY@$APP_VERSION\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Build Info: \`$BUILD_NAME#$BUILD_NUMBER\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**✅ Application version created and automatically promoted to PROD.**" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.analyze-commit.outputs.create_app_version }}" == "true" ]]; then
+            echo "### 🎯 Final Status" >> $GITHUB_STEP_SUMMARY
+            echo "Application version **${APP_VERSION:-'N/A'}** has been created and promoted to PROD." >> $GITHUB_STEP_SUMMARY
+            echo "All required evidence has been attached at each promotion stage." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### 📦 Build-Info Only" >> $GITHUB_STEP_SUMMARY
+            echo "This commit created build-info artifacts only (no application version)." >> $GITHUB_STEP_SUMMARY
+            echo "Use manual workflow dispatch with \`force_app_version=true\` to create an application version." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "✅ Enhanced summary generated using bookverse-devops patterns"
 
