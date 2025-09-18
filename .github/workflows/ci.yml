@@ -819,43 +819,26 @@ jobs:
           echo "   🏷️ Version: $APP_VERSION"
           echo "   🔨 Build: $SERVICE_NAME#$IMAGE_TAG"
 
-      - name: "[Auth] Exchange OIDC and persist JF access token"
-        id: exchange-oidc
-        env:
-          JF_URL: ${{ vars.JFROG_URL }}
-          PROJECT: ${{ vars.PROJECT_KEY }}
-          PROVIDER_NAME: bookverse-checkout-github
+      - name: "[Auth] OIDC Token Exchange (bookverse-devops shared script)"
         run: |
           set -euo pipefail
-          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
-          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
-            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
-          GH_ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
-          if [[ -z "$GH_ID_TOKEN" || "$GH_ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
-          PAYLOAD=$(jq -n --arg jwt "$GH_ID_TOKEN" \
-            --arg provider_name "$PROVIDER_NAME" \
-            --arg project_key "$PROJECT" \
-            --arg job_id "${{ github.job }}" \
-            --arg run_id "${{ github.run_id }}" \
-            --arg repo "https://github.com/${{ github.repository }}" \
-            --arg revision "${{ github.sha }}" \
-            --arg branch "${{ github.ref_name }}" \
-            '{
-              grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
-              subject_token_type:"urn:ietf:params:oauth:token-type:id_token",
-              subject_token:$jwt,
-              provider_name:$provider_name,
-              project_key:$project_key,
-              job_id:$job_id,
-              run_id:$run_id,
-              repo:$repo,
-              revision:$revision,
-              branch:$branch
-            }')
-          TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
-          if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
-          echo "JF_OIDC_TOKEN=$TOKEN" >> $GITHUB_ENV
+          echo "🔐 Exchanging OIDC token using shared script from bookverse-devops"
+          
+          # Use shared OIDC exchange script with proper parameters (same as recommendations)
+          EXCHANGE_SCRIPT="bookverse-infra/libraries/bookverse-devops/scripts/exchange-oidc-token.sh"
+          if [[ -f "$EXCHANGE_SCRIPT" ]]; then
+            chmod +x "$EXCHANGE_SCRIPT"
+            "$EXCHANGE_SCRIPT" \
+              --service-name "checkout" \
+              --provider-name "bookverse-checkout-github" \
+              --jfrog-url "${{ vars.JFROG_URL }}" \
+              --docker-registry "${{ vars.DOCKER_REGISTRY }}" \
+              --verbose
+            echo "✅ OIDC token exchange completed using shared script"
+          else
+            echo "❌ OIDC exchange script not found at $EXCHANGE_SCRIPT" >&2
+            exit 1
+          fi
 
       - name: "[Diag] Build Info contents"
         run: |
