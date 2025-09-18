@@ -367,6 +367,7 @@ jobs:
       - name: "[Evidence] API Image Package Evidence"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           echo "📊 Generating evidence for API image package"
           
@@ -407,6 +408,7 @@ jobs:
       - name: "[Evidence] OpenAPI Package Evidence"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           echo "📦 Generating evidence for OpenAPI package"
           
@@ -443,6 +445,7 @@ jobs:
       - name: "[Evidence] Contract Package Evidence"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           echo "📦 Generating evidence for contract package"
           
@@ -490,6 +493,7 @@ jobs:
       - name: "[Evidence] Worker Image Package Evidence"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           echo "📊 Generating evidence for Worker image package"
           
@@ -537,6 +541,7 @@ jobs:
       - name: "[Evidence] Migrations Image Package Evidence"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           echo "📊 Generating evidence for Migrations image package"
           
@@ -708,6 +713,7 @@ jobs:
       - name: "[Evidence] Build Evidence"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           echo "🏗️ Generating evidence for build-info"
           
@@ -740,6 +746,7 @@ jobs:
       APP_VERSION: ${{ needs.build-test-publish.outputs.app_version }}
       # Common promotion environment variables
       EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+      EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
       JFROG_URL: ${{ vars.JFROG_URL }}
       JF_URL: ${{ vars.JFROG_URL }}
       PROJECT_KEY: ${{ vars.PROJECT_KEY }}
@@ -948,6 +955,7 @@ jobs:
       - name: "[Evidence] Application Version Evidence (Shared Library)"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
           SERVICE_NAME: checkout
           APPLICATION_KEY: ${{ env.APPLICATION_KEY }}
           APP_VERSION: ${{ env.APP_VERSION }}
@@ -1003,6 +1011,7 @@ jobs:
       - name: "[Evidence] Attach UNASSIGNED (SLSA, Jira)"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           set -euo pipefail
           if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
@@ -1130,6 +1139,7 @@ jobs:
       - name: "[Auto-Promote] Through Stages"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           echo "📈 Starting automatic promotion for ${{ env.APP_VERSION }}"
           
