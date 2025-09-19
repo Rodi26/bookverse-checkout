@@ -901,7 +901,6 @@ jobs:
            echo "✅ Using JF_OIDC_TOKEN for DEV promotion"
           
           # Source evidence library (includes promotion setup)
-          export APPTRUST_ACCESS_TOKEN="$JF_OIDC_TOKEN"
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
           setup_promotion_environment
           
@@ -930,7 +929,6 @@ jobs:
            echo "✅ Using JF_OIDC_TOKEN for QA promotion"
           
           # Source evidence library (includes promotion setup)
-          export APPTRUST_ACCESS_TOKEN="$JF_OIDC_TOKEN"
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
           setup_promotion_environment
           
@@ -959,7 +957,6 @@ jobs:
            echo "✅ Using JF_OIDC_TOKEN for STAGING promotion"
           
           # Source evidence library (includes promotion setup)
-          export APPTRUST_ACCESS_TOKEN="$JF_OIDC_TOKEN"
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
           setup_promotion_environment
           
@@ -988,7 +985,6 @@ jobs:
            echo "✅ Using JF_OIDC_TOKEN for PROD promotion"
           
           # Source evidence library (includes promotion setup)
-          export APPTRUST_ACCESS_TOKEN="$JF_OIDC_TOKEN"
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
           setup_promotion_environment
           
