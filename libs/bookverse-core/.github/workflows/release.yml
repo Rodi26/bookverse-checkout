@@ -1,7 +1,5 @@
 name: BookVerse Core Library Release
 
-# DEMO PURPOSE: Release workflow for the bookverse-core library that demonstrates
-# standardized versioning, tagging, and publishing patterns for shared libraries.
 
 on:
   workflow_dispatch:
@@ -57,13 +55,11 @@ jobs:
           CURRENT_VERSION="${{ steps.get-version.outputs.current_version }}"
           VERSION_TYPE="${{ inputs.version_type }}"
           
-          # Parse semantic version
           IFS='.' read -ra VERSION_PARTS <<< "$CURRENT_VERSION"
           MAJOR=${VERSION_PARTS[0]}
           MINOR=${VERSION_PARTS[1]}
           PATCH=${VERSION_PARTS[2]}
           
-          # Bump version based on type
           case $VERSION_TYPE in
             major)
               MAJOR=$((MAJOR + 1))
@@ -99,7 +95,6 @@ jobs:
           pip install -r requirements-dev.txt
           pip install -e .
           
-          # Run critical tests
           pytest tests/unit/ -x --tb=short
           pytest tests/integration/ -x --tb=short
           
@@ -132,10 +127,8 @@ jobs:
           NEW_VERSION="${{ needs.validate-release.outputs.new_version }}"
           echo "📝 Updating version to $NEW_VERSION"
           
-          # Update pyproject.toml
           sed -i "s/version = \".*\"/version = \"$NEW_VERSION\"/" pyproject.toml
           
-          # Verify update
           grep "version = " pyproject.toml
       
       - name: "[Build] Create package"
@@ -143,10 +136,8 @@ jobs:
           echo "📦 Building release package..."
           python -m build
           
-          # List built packages
           ls -la dist/
           
-          # Validate package
           twine check dist/*
           
           echo "✅ Package built and validated"
@@ -157,15 +148,12 @@ jobs:
           NEW_VERSION="${{ needs.validate-release.outputs.new_version }}"
           RELEASE_TAG="v$NEW_VERSION"
           
-          # Configure git
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           
-          # Commit version update
           git add pyproject.toml
           git commit -m "chore: bump version to $NEW_VERSION"
           
-          # Create and push tag
           git tag -a "$RELEASE_TAG" -m "Release $NEW_VERSION"
           git push origin main
           git push origin "$RELEASE_TAG"
@@ -204,19 +192,15 @@ jobs:
           CURRENT_VERSION="${{ needs.validate-release.outputs.current_version }}"
           
           cat > release_notes.md << EOF
-          # BookVerse Core Library v$NEW_VERSION
           
-          ## 🎯 Demo Purpose
           This release of the bookverse-core library demonstrates how shared libraries can eliminate code duplication and standardize patterns across microservices.
           
-          ## 📊 Code Duplication Eliminated
           - **Authentication**: 1,124+ lines of duplicate JWT validation code
           - **Configuration**: 4 different configuration approaches → 1 unified system
           - **API Patterns**: Standardized FastAPI setup and middleware
           - **Database Utilities**: Shared session management and pagination
           - **Logging**: Comprehensive, standardized logging setup
           
-          ## 🚀 Key Features
           - **JWT Authentication** with OIDC support and FastAPI dependencies
           - **Unified Configuration** supporting YAML, environment variables, and defaults
           - **FastAPI App Factory** with standardized middleware and error handling
@@ -224,12 +208,10 @@ jobs:
           - **Common Utilities** for logging, validation, and demo helpers
           - **Comprehensive Demo Application** showcasing all features
           
-          ## 📦 Installation
           \`\`\`bash
           pip install bookverse-core==$NEW_VERSION
           \`\`\`
           
-          ## 🎯 Usage Example
           \`\`\`python
           from bookverse_core.api import create_app
           from bookverse_core.config import BaseConfig
@@ -243,7 +225,6 @@ jobs:
               return {"message": f"Hello {user.name}!"}
           \`\`\`
           
-          ## 🔄 Migration Benefits
           Services migrating to this library will see:
           - **21% codebase reduction** through eliminated duplication
           - **Consistent security** implementation across all services
@@ -251,10 +232,8 @@ jobs:
           - **Unified API** responses and error handling
           - **Centralized maintenance** for common functionality
           
-          ## 📋 What's Changed
           ${{ inputs.release_notes }}
           
-          ## 🧪 Demo Application
           The included demo application showcases all library features:
           - Authentication patterns (public, protected, optional)
           - Configuration management demonstrations
@@ -262,7 +241,6 @@ jobs:
           - Health checks and middleware patterns
           - Complete API documentation
           
-          ## 🔗 Next Steps
           1. Review the demo application and documentation
           2. Begin pilot migration with inventory service
           3. Measure actual code reduction and consistency improvements
@@ -319,14 +297,12 @@ jobs:
         run: |
           echo "🔍 Validating library functionality..."
           python -c "
-          # Test all major imports
           from bookverse_core.auth import AuthUser, validate_jwt_token
           from bookverse_core.config import BaseConfig, ConfigLoader
           from bookverse_core.api import create_app, create_success_response
           from bookverse_core.database import get_db_session_maker
           from bookverse_core.utils import setup_logging, validate_email
           
-          # Test basic functionality
           config = BaseConfig(service_name='Test Service')
           app = create_app('Test', '1.0.0', 'Test app', config)
           response = create_success_response({'test': 'data'}, 'Test message')

@@ -1,7 +1,5 @@
 name: BookVerse Core Library CI
 
-# DEMO PURPOSE: CI/CD workflow for the bookverse-core library that demonstrates
-# standardized testing, building, and publishing patterns for shared libraries.
 
 on:
   workflow_dispatch:
@@ -132,18 +130,14 @@ jobs:
       - name: "[Test] Demo application"
         run: |
           echo "🧪 Testing demo application..."
-          # Start demo app in background
           docker run -d --name demo-test -p 8000:8000 bookverse-core-demo:latest
           
-          # Wait for app to start
           sleep 10
           
-          # Test basic endpoints
           curl -f http://localhost:8000/health || exit 1
           curl -f http://localhost:8000/demo/info || exit 1
           curl -f http://localhost:8000/demo/summary || exit 1
           
-          # Stop container
           docker stop demo-test
           docker rm demo-test
           
@@ -172,12 +166,10 @@ jobs:
       - name: "[Version] Set version"
         id: version
         run: |
-          # For demo, use timestamp-based versioning
           VERSION="0.1.0.dev$(date +%Y%m%d%H%M%S)"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "📦 Package version: $VERSION"
           
-          # Update version in pyproject.toml
           sed -i "s/version = \"0.1.0\"/version = \"$VERSION\"/" pyproject.toml
       
       - name: "[Build] Python package"
@@ -186,7 +178,6 @@ jobs:
           python -m build
           echo "✅ Package built"
           
-          # List built packages
           ls -la dist/
       
       - name: "[Validate] Package"
@@ -245,10 +236,8 @@ jobs:
       - name: "[Test] Demo application with installed package"
         run: |
           echo "🧪 Testing demo app with installed package..."
-          # Remove source code to ensure we're using installed package
           rm -rf bookverse_core/
           
-          # Test demo app
           cd app/
           python -c "
           from main import app
@@ -316,51 +305,38 @@ jobs:
         run: |
           echo "🎯 Running comprehensive demo validation..."
           
-          # Start demo app in background
           cd app/
           python main.py &
           APP_PID=$!
           
-          # Wait for startup
           sleep 5
           
-          # Test all demo endpoints
           echo "Testing demo endpoints..."
           
-          # Basic endpoints
           curl -f http://localhost:8000/health
           curl -f http://localhost:8000/info
           curl -f http://localhost:8000/demo/info
           curl -f http://localhost:8000/demo/summary
           
-          # Configuration demo
           curl -f http://localhost:8000/demo/config/current
           
-          # Authentication demos
           curl -f http://localhost:8000/demo/auth/public
           curl -f http://localhost:8000/demo/auth/optional
           
-          # Pagination demo
           curl -f "http://localhost:8000/demo/pagination/items?page=1&per_page=2"
           
-          # Validation demo
           curl -f http://localhost:8000/demo/validation/test
           
-          # Logging demo
           curl -f http://localhost:8000/demo/logging/test
           
-          # Middleware demo
           curl -f http://localhost:8000/demo/middleware/demo
           
-          # Response patterns demo
           curl -f http://localhost:8000/demo/responses/demo
           
-          # Health checks
           curl -f http://localhost:8000/health/live
           curl -f http://localhost:8000/health/ready
           curl -f http://localhost:8000/demo/health/detailed
           
-          # Stop app
           kill $APP_PID
           
           echo "✅ All demo endpoints validated successfully"
