@@ -706,7 +706,7 @@ jobs:
           APP_KEY="$APPLICATION_KEY"
           
           TAG_OPTIONS=(release hotfix feature bugfix enhancement security performance refactor)
-          TAG_INDEX=$((${GITHUB_RUN_NUMBER:-0} % ${
+          TAG_INDEX=$((${GITHUB_RUN_NUMBER:-0} % ${#TAG_OPTIONS[@]}))
           APP_TAG="${TAG_OPTIONS[$TAG_INDEX]}"
           
           ACTUAL_BUILD_NAME="${{ needs.build-test-publish.outputs.build_name }}"
