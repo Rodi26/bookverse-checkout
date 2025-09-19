@@ -687,7 +687,7 @@ jobs:
           ENC_BUILD_NUMBER=$(printf '%s' "$BUILD_NUMBER" | jq -sRr @uri)
           URL="${{ vars.JFROG_URL }}/artifactory/api/build/${ENC_BUILD_NAME}/${ENC_BUILD_NUMBER}?project=${{ vars.PROJECT_KEY }}"
           echo "GET $URL"
-          curl -sS -H "Authorization: Bearer $JF_OIDC_TOKEN" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "$URL" \
+          curl -sS -H "Authorization: Bearer $JF_OIDC_TOKEN" -H "Accept: application/json" "$URL" \
             | jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})'
 
       - name: "[Create] Application Version"
@@ -723,7 +723,6 @@ jobs:
              "$BASE/applications/$APP_KEY/versions?async=false" \
              -H "Authorization: Bearer $JF_OIDC_TOKEN" \
               -H "Content-Type: application/json" \
-              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
               -d "$APP_VERSION_PAYLOAD" \
             --fail-with-body)
           
