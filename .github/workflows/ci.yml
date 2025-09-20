@@ -875,7 +875,6 @@ jobs:
           
           # Fetch release status for tag enforcement
           source bookverse-infra/libraries/bookverse-devops/scripts/promote-lib.sh
-          export JF_OIDC_TOKEN="$APPTRUST_ACCESS_TOKEN"
           fetch_summary
           echo "RELEASE_STATUS=${RELEASE_STATUS:-}" >> $GITHUB_ENV
           
@@ -897,7 +896,7 @@ jobs:
           # Set up environment
           export JFROG_URL='${{ vars.JFROG_URL }}'
           export PROJECT_KEY='${{ vars.PROJECT_KEY }}'
-          export JF_OIDC_TOKEN="$APPTRUST_ACCESS_TOKEN"
+          # JF_OIDC_TOKEN is already available from the OIDC exchange step
           
           # Get current latest tag holder
           BASE="${JFROG_URL%/}"
