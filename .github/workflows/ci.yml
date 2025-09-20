@@ -872,7 +872,61 @@ jobs:
 
           attach_application_prod_evidence
           echo "✅ PROD stage evidence attached: deployment-verification"
+          
+          # Fetch release status for tag enforcement
+          source bookverse-infra/libraries/bookverse-devops/scripts/promote-lib.sh
+          export JF_OIDC_TOKEN="$APPTRUST_ACCESS_TOKEN"
+          fetch_summary
+          echo "RELEASE_STATUS=${RELEASE_STATUS:-}" >> $GITHUB_ENV
+          
           echo "🎉 SUCCESS: Application version $APP_VERSION promoted to PROD with all evidence attached!"
+
+      - name: "[Tags] Enforce PROD 'latest' invariants"
+        run: |
+          set -euo pipefail
+          echo "🏷️ Enforcing 'latest' tag for PROD release"
+          
+          # Check if we successfully released to PROD
+          if [[ "${RELEASE_STATUS:-}" != "RELEASED" && "${RELEASE_STATUS:-}" != "TRUSTED_RELEASE" ]]; then
+            echo "Skipping latest tag enforcement; not a successful PROD release (status: ${RELEASE_STATUS:-UNKNOWN})"
+            exit 0
+          fi
+          
+          echo "✅ PROD release successful, enforcing 'latest' tag"
+          
+          # Set up environment
+          export JFROG_URL='${{ vars.JFROG_URL }}'
+          export PROJECT_KEY='${{ vars.PROJECT_KEY }}'
+          export JF_OIDC_TOKEN="$APPTRUST_ACCESS_TOKEN"
+          
+          # Get current latest tag holder
+          BASE="${JFROG_URL%/}"
+          LATEST_RESP=$(curl -sS -H "Authorization: Bearer $JF_OIDC_TOKEN" -H "Accept: application/json" \
+            "$BASE/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=50&order_by=created&order_asc=false" || echo '{}')
+          
+          CURRENT_LATEST=$(echo "$LATEST_RESP" | jq -r '.versions[]? | select(.tag=="latest") | .version' | head -1)
+          
+          if [[ "$CURRENT_LATEST" == "$APP_VERSION" ]]; then
+            echo "✅ Version $APP_VERSION already has 'latest' tag"
+            exit 0
+          fi
+          
+          # Remove 'latest' tag from previous version if it exists
+          if [[ -n "$CURRENT_LATEST" && "$CURRENT_LATEST" != "null" ]]; then
+            echo "🔄 Removing 'latest' tag from version $CURRENT_LATEST"
+            curl -sS -X DELETE -H "Authorization: Bearer $JF_OIDC_TOKEN" \
+              "$BASE/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$CURRENT_LATEST/tags/latest" || true
+          fi
+          
+          # Add 'latest' tag to current version
+          echo "🏷️ Adding 'latest' tag to version $APP_VERSION"
+          TAG_RESP=$(curl -sS -X POST -H "Authorization: Bearer $JF_OIDC_TOKEN" -H "Content-Type: application/json" \
+            -d '{"tag": "latest"}' \
+            "$BASE/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/tags")
+          
+          echo "✅ Successfully updated 'latest' tag to version $APP_VERSION"
+          echo "📋 Previous latest: ${CURRENT_LATEST:-none}"
+          echo "📋 New latest: $APP_VERSION"
 
       - name: "📊 Enhanced Build Summary (bookverse-devops pattern)"
         if: always()
