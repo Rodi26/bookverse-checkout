@@ -880,52 +880,44 @@ jobs:
           
           echo "🎉 SUCCESS: Application version $APP_VERSION promoted to PROD with all evidence attached!"
 
-      - name: "[Tags] Enforce PROD 'latest' invariants"
+      - name: "[Tags] Self-Healing Tag Management"
         run: |
           set -euo pipefail
-          echo "🏷️ Enforcing 'latest' tag for PROD release"
+          echo "🏥 Running self-healing tag management for PROD release"
           
           # Check if we successfully released to PROD
           if [[ "${RELEASE_STATUS:-}" != "RELEASED" && "${RELEASE_STATUS:-}" != "TRUSTED_RELEASE" ]]; then
-            echo "Skipping latest tag enforcement; not a successful PROD release (status: ${RELEASE_STATUS:-UNKNOWN})"
+            echo "ℹ️ Skipping tag management; not a successful PROD release (status: ${RELEASE_STATUS:-UNKNOWN})"
             exit 0
           fi
           
-          echo "✅ PROD release successful, enforcing 'latest' tag"
+          echo "✅ PROD release successful, running comprehensive tag validation and healing"
           
-          # Set up environment
+          # Set up environment for tag management library
           export JFROG_URL='${{ vars.JFROG_URL }}'
           export PROJECT_KEY='${{ vars.PROJECT_KEY }}'
+          export APPLICATION_KEY='${{ steps.app.outputs.application_key }}'
           # JF_OIDC_TOKEN is already available from the OIDC exchange step
           
-          # Get current latest tag holder
-          BASE="${JFROG_URL%/}"
-          LATEST_RESP=$(curl -sS -H "Authorization: Bearer $JF_OIDC_TOKEN" -H "Accept: application/json" \
-            "$BASE/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=50&order_by=created&order_asc=false" || echo '{}')
+          # Load the self-healing tag management library
+          source bookverse-infra/libraries/bookverse-devops/scripts/tag-management-lib.sh
           
-          CURRENT_LATEST=$(echo "$LATEST_RESP" | jq -r '.versions[]? | select(.tag=="latest") | .version' | head -1)
+          # Run comprehensive tag validation and healing
+          # This will:
+          # 1. Find all versions and their current states
+          # 2. Identify the highest SemVer version in PROD (latest candidate)
+          # 3. Validate all tags are correct based on version states
+          # 4. Fix any inconsistencies (add/remove tags as needed)
+          # 5. Handle quarantined versions, non-SemVer versions, etc.
+          validate_and_heal_tags
           
-          if [[ "$CURRENT_LATEST" == "$APP_VERSION" ]]; then
-            echo "✅ Version $APP_VERSION already has 'latest' tag"
-            exit 0
-          fi
-          
-          # Remove 'latest' tag from previous version if it exists
-          if [[ -n "$CURRENT_LATEST" && "$CURRENT_LATEST" != "null" ]]; then
-            echo "🔄 Removing 'latest' tag from version $CURRENT_LATEST"
-            curl -sS -X DELETE -H "Authorization: Bearer $JF_OIDC_TOKEN" \
-              "$BASE/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$CURRENT_LATEST/tags/latest" || true
-          fi
-          
-          # Add 'latest' tag to current version
-          echo "🏷️ Adding 'latest' tag to version $APP_VERSION"
-          TAG_RESP=$(curl -sS -X POST -H "Authorization: Bearer $JF_OIDC_TOKEN" -H "Content-Type: application/json" \
-            -d '{"tag": "latest"}' \
-            "$BASE/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/tags")
-          
-          echo "✅ Successfully updated 'latest' tag to version $APP_VERSION"
-          echo "📋 Previous latest: ${CURRENT_LATEST:-none}"
-          echo "📋 New latest: $APP_VERSION"
+          echo ""
+          echo "🎯 Tag management completed for version $APP_VERSION"
+          echo "📋 All versions now have correct tags based on their states:"
+          echo "   - 'latest': Highest SemVer version in PROD"
+          echo "   - 'quarantine': Versions that were rolled back"
+          echo "   - 'valid': Other valid SemVer versions"
+          echo "   - Non-SemVer versions: No special tags (ignored for 'latest')"
 
       - name: "📊 Enhanced Build Summary (bookverse-devops pattern)"
         if: always()
