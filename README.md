@@ -87,3 +87,4 @@ application:
 - [`ci.yml`](.github/workflows/ci.yml) — CI for the checkout service: tests, multi-image build, publish artifacts/build-info, AppTrust version and evidence.
 - [`promote.yml`](.github/workflows/promote.yml) — Promote the checkout application version through stages with evidence.
 - [`promotion-rollback.yml`](.github/workflows/promotion-rollback.yml) — Roll back a promoted checkout application version (demo utility).
+# Test comment for tag management validation - Sat Sep 20 20:13:08 IDT 2025
