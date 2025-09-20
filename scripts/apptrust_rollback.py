@@ -258,7 +258,7 @@ def get_auth_token() -> Optional[str]:
         return token
     
     # Legacy fallback
-    return _env("APPTRUST_ACCESS_TOKEN")
+    return None
 
 def get_base_url() -> Optional[str]:
     """Get AppTrust base URL using OIDC-aware approach with fallback."""
@@ -276,7 +276,7 @@ def main() -> int:
     parser.add_argument("--app", required=True, help="Application key")
     parser.add_argument("--version", required=True, help="Target version to rollback (SemVer)")
     parser.add_argument("--base-url", default=None, help="Base API URL, e.g. https://<host>/apptrust/api/v1 (env: APPTRUST_BASE_URL, JF_OIDC_TOKEN via OIDC)")
-    parser.add_argument("--token", default=None, help="Access token (env: JF_OIDC_TOKEN, APPTRUST_ACCESS_TOKEN, or OIDC auto-detection)")
+    parser.add_argument("--token", default=None, help="Access token (env: JF_OIDC_TOKEN or OIDC auto-detection)")
     parser.add_argument("--dry-run", action="store_true", help="Log intended changes without mutating")
     args = parser.parse_args()
 
@@ -291,7 +291,7 @@ def main() -> int:
     token = args.token or get_auth_token()
     if not token:
         print("Missing authentication token", file=sys.stderr)
-        print("Tried: JF_OIDC_TOKEN, OIDC auto-detection, APPTRUST_ACCESS_TOKEN", file=sys.stderr)
+        print("Tried: JF_OIDC_TOKEN, OIDC auto-detection", file=sys.stderr)
         if not OIDC_AVAILABLE:
             print("Note: OIDC authentication library not available", file=sys.stderr)
         return 2
