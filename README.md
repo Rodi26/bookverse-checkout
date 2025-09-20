@@ -89,3 +89,4 @@ application:
 - [`promotion-rollback.yml`](.github/workflows/promotion-rollback.yml) — Roll back a promoted checkout application version (demo utility).
 # Test comment for tag management validation - Sat Sep 20 20:13:08 IDT 2025
 # Test fixed tag management library - Sat Sep 20 20:20:56 IDT 2025
+# Debug test for tag management - Sat Sep 20 20:32:58 IDT 2025
