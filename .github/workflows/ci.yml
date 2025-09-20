@@ -896,7 +896,7 @@ jobs:
           # Set up environment for tag management library
           export JFROG_URL='${{ vars.JFROG_URL }}'
           export PROJECT_KEY='${{ vars.PROJECT_KEY }}'
-          export APPLICATION_KEY='${{ steps.app.outputs.application_key }}'
+          export APPLICATION_KEY="$APPLICATION_KEY"
           # JF_OIDC_TOKEN is already available from the OIDC exchange step
           
           # Load the self-healing tag management library
