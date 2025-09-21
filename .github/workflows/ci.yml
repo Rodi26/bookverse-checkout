@@ -105,39 +105,21 @@ jobs:
           echo "SERVICE_NAME=checkout" >> $GITHUB_ENV
           echo "APPLICATION_KEY=bookverse-checkout" >> $GITHUB_ENV
 
-      - name: "[Setup] JFrog CLI"
-        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+      - name: "[Auth] Enhanced OIDC Token Generation"
+        id: enhanced-oidc
+        uses: bookverse-infra/.github/actions/generate-oidc-token@main
         with:
-          version: latest
+          oidc-provider-url: ${{ vars.JFROG_URL }}
           oidc-provider-name: bookverse-checkout-github
-          oidc-audience: ${{ vars.JFROG_URL }}
-          disable-job-summary: true
-          disable-auto-build-publish: true
-          disable-auto-evidence-collection: false
-        env:
-          JF_URL: ${{ vars.JFROG_URL }}
-          JF_PROJECT: ${{ vars.PROJECT_KEY }}
-          JFROG_CLI_BUILD_NAME: ${{ env.BUILD_NAME }}
-          JFROG_CLI_BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
-          JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
+          service-name: checkout
+          application-key: bookverse-checkout
+          version: latest
 
-      - name: "[Setup] Verify JFrog Authentication"
+      - name: "[Setup] Verify Enhanced OIDC Authentication"
         run: |
-          echo "🔐 Verifying JFrog CLI authentication and connectivity..."
+          echo "🔐 Verifying enhanced OIDC authentication and connectivity..."
           jf rt ping
-          echo "✅ JFrog authentication successful"
-
-      - name: "[Auth] OIDC Token Exchange (bookverse-devops shared script)"
-        id: exchange-oidc
-        run: |
-          echo "🔐 Using bookverse-devops shared OIDC exchange script"
-          bookverse-infra/libraries/bookverse-devops/scripts/exchange-oidc-token.sh \
-            --service-name "checkout" \
-            --provider-name "bookverse-checkout-github" \
-            --jfrog-url "${{ vars.JFROG_URL }}" \
-            --docker-registry "${{ vars.DOCKER_REGISTRY }}" \
-            --verbose
-          echo "✅ OIDC token exchange completed using shared bookverse-devops script"
+          echo "✅ Enhanced OIDC authentication successful"
 
       - name: "[Setup] Install Python dependencies"
         run: |
@@ -632,7 +614,7 @@ jobs:
           path: bookverse-infra
 
       - name: "[Setup] JFrog CLI"
-        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        uses: bookverse-infra/.github/actions/generate-oidc-token@main
         with:
           version: latest
           oidc-provider-name: bookverse-checkout-github
@@ -647,17 +629,13 @@ jobs:
           JFROG_CLI_BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
           JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
 
-      - name: "[Auth] OIDC Token Exchange (bookverse-devops shared script)"
-        id: exchange-oidc
+      - name: "[Auth] Enhanced OIDC Token Generation (Fallback)"
+        id: exchange-oidc-fallback
         run: |
-          echo "🔐 Using bookverse-devops shared OIDC exchange script"
-          bookverse-infra/libraries/bookverse-devops/scripts/exchange-oidc-token.sh \
-            --service-name "checkout" \
-            --provider-name "bookverse-checkout-github" \
-            --jfrog-url "${{ vars.JFROG_URL }}" \
-            --docker-registry "${{ vars.DOCKER_REGISTRY }}" \
-            --verbose
-          echo "✅ OIDC token exchange completed using shared bookverse-devops script"
+          echo "🔐 Using enhanced OIDC auth script as fallback"
+          source bookverse-infra/libraries/bookverse-devops/scripts/enhanced-oidc-auth.sh
+          generate_enhanced_oidc_token "checkout" "latest"
+          echo "✅ Enhanced OIDC token generation completed"
   
       - name: "[Setup] Install Python dependencies"
         run: |
@@ -897,7 +875,7 @@ jobs:
           export JFROG_URL='${{ vars.JFROG_URL }}'
           export PROJECT_KEY='${{ vars.PROJECT_KEY }}'
           export APPLICATION_KEY="$APPLICATION_KEY"
-          # JF_OIDC_TOKEN is already available from the OIDC exchange step
+          # JF_OIDC_TOKEN is available from enhanced OIDC token generation
           
           # Load the self-healing tag management library
           source bookverse-infra/libraries/bookverse-devops/scripts/tag-management-lib.sh
