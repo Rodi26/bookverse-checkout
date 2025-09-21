@@ -254,6 +254,7 @@ jobs:
       - name: "[Release] Create GitHub release"
         uses: actions/create-release@v1
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ needs.build-release.outputs.release_tag }}
           release_name: BookVerse Core Library ${{ needs.validate-release.outputs.new_version }}
@@ -264,14 +265,15 @@ jobs:
       - name: "[Release] Upload package assets"
         uses: actions/upload-release-asset@v1
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create-release.outputs.upload_url }}
           asset_path: dist/
           asset_name: bookverse-core-packages
           asset_content_type: application/zip
 
-  validate-release:
-    name: Validate Release
+  final-validation:
+    name: Final Validation
     runs-on: ubuntu-latest
     needs: [validate-release, build-release, create-github-release]
     
