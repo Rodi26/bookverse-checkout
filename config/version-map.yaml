@@ -5,6 +5,9 @@ applications:
       build: 3.28.44
     packages:
       - type: docker
+        name: checkout
+        seed: 2.38.35
+      - type: docker
         name: checkout-api
         seed: 1.17.22
       - type: docker
