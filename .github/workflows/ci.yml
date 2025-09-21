@@ -312,77 +312,11 @@ jobs:
           echo "coverage_percent=$COV" >> $GITHUB_OUTPUT
 
       - name: "[Build] Docker Registry Authentication"
-        run: |
-          set -euo pipefail
-          echo "🔐 Authenticating Docker with JFrog registry..."
-          
-          # Validate inputs
-          OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
-          if [[ -z "$OIDC_TOKEN" ]]; then
-            echo "❌ OIDC token not provided" >&2
-            exit 1
-          fi
-          
-          REGISTRY_URL="${{ vars.JFROG_URL }}"
-          if [[ -z "$REGISTRY_URL" ]]; then
-            echo "❌ Registry URL not provided" >&2
-            exit 1
-          fi
-          
-          # Extract Docker registry hostname from JFrog URL
-          DOCKER_REGISTRY="${REGISTRY_URL}"
-          DOCKER_REGISTRY="${DOCKER_REGISTRY#https://}"
-          DOCKER_REGISTRY="${DOCKER_REGISTRY#http://}"
-          DOCKER_REGISTRY="${DOCKER_REGISTRY%/}"  # Remove trailing slash if present
-          
-          echo "🐳 Registry hostname: $DOCKER_REGISTRY"
-          
-          # Extract username from JWT token payload
-          echo "🔍 Parsing JWT token for username..."
-          TOKEN_PAYLOAD=$(echo "$OIDC_TOKEN" | cut -d. -f2)
-          
-          # Add base64 padding if needed
-          case $((${#TOKEN_PAYLOAD} % 4)) in
-            2) TOKEN_PAYLOAD="${TOKEN_PAYLOAD}==" ;;
-            3) TOKEN_PAYLOAD="${TOKEN_PAYLOAD}=" ;;
-          esac
-          
-          # Decode JWT payload to extract claims
-          CLAIMS=$(echo "$TOKEN_PAYLOAD" | tr '_-' '/+' | base64 -d 2>/dev/null || true)
-          if [[ -z "$CLAIMS" ]]; then
-            echo "❌ Failed to decode JWT token payload" >&2
-            exit 1
-          fi
-          
-          # Extract username with fallback strategy
-          DOCKER_USER=$(echo "$CLAIMS" | jq -r '.username // .sub // .subject // "oauth2_access_token"' 2>/dev/null || echo "oauth2_access_token")
-          
-          # Handle JFrog user format: jfac@.../users/<username>
-          if [[ "$DOCKER_USER" == *"/users/"* ]]; then
-            DOCKER_USER=${DOCKER_USER##*/users/}
-            echo "🔍 Extracted username from JFrog path format"
-          fi
-          
-          # Final fallback if no username found or null
-          if [[ -z "$DOCKER_USER" || "$DOCKER_USER" == "null" ]]; then
-            DOCKER_USER="oauth2_access_token"
-            echo "🔍 Using fallback username: oauth2_access_token"
-          fi
-          
-          echo "📋 Authentication details:"
-          echo "  • Registry: $DOCKER_REGISTRY"
-          echo "  • Username: $DOCKER_USER"
-          echo "  • Token: ${OIDC_TOKEN:0:10}*** (truncated for security)"
-          
-          # Perform Docker login
-          echo "🐳 Performing Docker registry login..."
-          if echo "$OIDC_TOKEN" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin; then
-            echo "✅ Docker authentication successful"
-          else
-            echo "❌ Docker authentication failed" >&2
-            echo "🔍 Check that the OIDC token has proper permissions for registry: $DOCKER_REGISTRY"
-            exit 1
-          fi
+        uses: ../../../bookverse-infra/.github/actions/docker-registry-auth@main
+        with:
+          oidc-token: ${{ steps.jfrog-cli-auth.outputs.oidc-token }}
+          registry-url: ${{ vars.JFROG_URL }}
+          verbosity: 'feedback'
 
       - name: "[Build] API image"
         run: |
