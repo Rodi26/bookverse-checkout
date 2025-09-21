@@ -107,7 +107,7 @@ jobs:
 
       - name: "[Auth] Enhanced OIDC Token Generation"
         id: enhanced-oidc
-        uses: bookverse-infra/.github/actions/generate-oidc-token@main
+        uses: yonatanp-jfrog/bookverse-infra/.github/actions/generate-oidc-token@main
         with:
           oidc-provider-url: ${{ vars.JFROG_URL }}
           oidc-provider-name: bookverse-checkout-github
@@ -165,7 +165,9 @@ jobs:
           if [[ -n "${!DOCKER_TAG_VAR:-}" ]]; then
             IMAGE_TAG="${!DOCKER_TAG_VAR}"
           else
-            IMAGE_TAG="$BUILD_NUMBER"
+            # Use APP_VERSION instead of BUILD_NUMBER to ensure semver compliance
+            # BUILD_NUMBER format (e.g., "180-1") is not semver and causes issues
+            IMAGE_TAG="$APP_VERSION"
           fi
           
           REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
@@ -614,14 +616,15 @@ jobs:
           path: bookverse-infra
 
       - name: "[Setup] JFrog CLI"
-        uses: bookverse-infra/.github/actions/generate-oidc-token@main
+        uses: yonatanp-jfrog/bookverse-infra/.github/actions/generate-oidc-token@main
         with:
           version: latest
+          oidc-provider-url: ${{ vars.JFROG_URL }}
           oidc-provider-name: bookverse-checkout-github
           oidc-audience: ${{ vars.JFROG_URL }}
-          disable-job-summary: true
-          disable-auto-build-publish: true
-          disable-auto-evidence-collection: false
+          service-name: checkout
+          application-key: bookverse-checkout
+          project-key: ${{ vars.PROJECT_KEY }}
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
