@@ -335,8 +335,8 @@ jobs:
           docker buildx create --name multiarch --driver docker-container --use
           docker buildx inspect --bootstrap
 
-          # Build and push to JFrog Artifactory using correct pattern (linux/amd64 only for faster builds)
-          jf docker buildx build --platform linux/amd64 \
+          # Build and push to JFrog Artifactory using correct pattern (linux/arm64 for Apple Silicon)
+          jf docker buildx build --platform linux/arm64 \
             --tag "$IMAGE_NAME" \
             --metadata-file=build-metadata --output=type=image --push .
           
@@ -447,8 +447,8 @@ jobs:
           WORKER_IMAGE="${{ vars.DOCKER_REGISTRY }}/$REPO_KEY/$WORKER_NAME:$WORKER_TAG"
           echo "WORKER_IMAGE=$WORKER_IMAGE" >> $GITHUB_ENV
           
-          # Build and push worker image using correct pattern (linux/amd64 only for faster builds)
-          jf docker buildx build --platform linux/amd64 \
+          # Build and push worker image using correct pattern (linux/arm64 for Apple Silicon)
+          jf docker buildx build --platform linux/arm64 \
             -f Dockerfile.worker --tag "$WORKER_IMAGE" \
             --metadata-file=worker-build-metadata --output=type=image --push .
           
