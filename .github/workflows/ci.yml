@@ -296,31 +296,22 @@ jobs:
           export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
 
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
-          REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
-          IMAGE_NAME="$REGISTRY_URL/$REPO_KEY/$SERVICE_NAME:$IMAGE_TAG"
+          IMAGE_NAME="${{ vars.DOCKER_REGISTRY }}/$REPO_KEY/$SERVICE_NAME:$IMAGE_TAG"
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "Using precomputed image tag: $IMAGE_TAG"
 
-          jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          docker push "$IMAGE_NAME"
+          # Set up Docker buildx for multi-platform builds
+          docker buildx create --name multiarch --driver docker-container --use
+          docker buildx inspect --bootstrap
+
+          # Build and push to JFrog Artifactory using correct pattern (linux/amd64 only for faster builds)
+          jf docker buildx build --platform linux/amd64 \
+            --tag "$IMAGE_NAME" \
+            --metadata-file=build-metadata --output=type=image --push .
           
-          echo "📋 Resolving image digest and associating with build-info..."
-          
-          MAIN_DIGEST=$(docker inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
-          if [[ -z "$MAIN_DIGEST" || "$MAIN_DIGEST" == "<no value>" ]]; then
-            docker pull "$IMAGE_NAME" >/dev/null 2>&1 || true
-            MAIN_DIGEST=$(docker inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
-          fi
-          if [[ -z "$MAIN_DIGEST" || "$MAIN_DIGEST" == "<no value>" ]]; then
-            echo "❌ Could not resolve image digest for $IMAGE_NAME" >&2; exit 1
-          fi
-          
-          echo "${IMAGE_NAME%@*}@${MAIN_DIGEST}" > main_image.txt
-          echo "📋 Associating API image: $(cat main_image.txt)"
+          # Create build-docker association using metadata file
           jf rt build-docker-create "$REPO_KEY" \
-            --image-file main_image.txt \
-            --build-name "$BUILD_NAME" \
-            --build-number "$BUILD_NUMBER" \
+            --image-file build-metadata --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
 
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
@@ -422,30 +413,17 @@ jobs:
           echo "WORKER_TAG=$WORKER_TAG" >> $GITHUB_ENV
           
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
-          REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
-          WORKER_IMAGE="$REGISTRY_URL/$REPO_KEY/$WORKER_NAME:$WORKER_TAG"
+          WORKER_IMAGE="${{ vars.DOCKER_REGISTRY }}/$REPO_KEY/$WORKER_NAME:$WORKER_TAG"
           echo "WORKER_IMAGE=$WORKER_IMAGE" >> $GITHUB_ENV
           
-          jf docker build -f Dockerfile.worker -t "$WORKER_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          docker push "$WORKER_IMAGE"
+          # Build and push worker image using correct pattern (linux/amd64 only for faster builds)
+          jf docker buildx build --platform linux/amd64 \
+            -f Dockerfile.worker --tag "$WORKER_IMAGE" \
+            --metadata-file=worker-build-metadata --output=type=image --push .
           
-          echo "📋 Resolving Worker image digest and associating with build-info..."
-          
-          WORKER_DIGEST=$(docker inspect "$WORKER_IMAGE" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
-          if [[ -z "$WORKER_DIGEST" || "$WORKER_DIGEST" == "<no value>" ]]; then
-            docker pull "$WORKER_IMAGE" >/dev/null 2>&1 || true
-            WORKER_DIGEST=$(docker inspect "$WORKER_IMAGE" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
-          fi
-          if [[ -z "$WORKER_DIGEST" || "$WORKER_DIGEST" == "<no value>" ]]; then
-            echo "❌ Could not resolve image digest for $WORKER_IMAGE" >&2; exit 1
-          fi
-          
-          echo "${WORKER_IMAGE%@*}@${WORKER_DIGEST}" > worker_image.txt
-          echo "📋 Associating Worker image: $(cat worker_image.txt)"
+          # Create build-docker association using metadata file
           jf rt build-docker-create "$REPO_KEY" \
-            --image-file worker_image.txt \
-            --build-name "$BUILD_NAME" \
-            --build-number "$BUILD_NUMBER" \
+            --image-file worker-build-metadata --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
 
           echo "✅ Built, pushed, and associated Worker Docker image with build-info"
