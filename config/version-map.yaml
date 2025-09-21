@@ -1,21 +1,16 @@
 applications:
   - key: bookverse-checkout
     seeds:
-      application: 3.2.15
+      application: 2.0.7
+      build: 3.28.44
     packages:
       - type: docker
-        name: checkout
-        seed: 3.2.15
+        name: checkout-api
+        seed: 1.17.22
       - type: docker
         name: checkout-worker
-        seed: 2.1.12
+        seed: 3.4.11
       - type: docker
-        name: checkout-migrations
-        seed: 2.0.7
-      - type: generic
-        name: openapi
-        seed: 3.2.15
-      - type: generic
-        name: order.created.schema
-        seed: 3.2.15
+        name: checkout-mock-payment
+        seed: 3.6.9
 
