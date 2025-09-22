@@ -331,18 +331,13 @@ jobs:
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "Using precomputed image tag: $IMAGE_TAG"
 
-          # Set up Docker buildx for multi-platform builds
-          docker buildx create --name multiarch --driver docker-container --use
-          docker buildx inspect --bootstrap
-
-          # Build and push to JFrog Artifactory using correct pattern (linux/arm64 for Apple Silicon)
-          jf docker buildx build --platform linux/arm64 \
-            --tag "$IMAGE_NAME" \
-            --metadata-file=build-metadata --output=type=image --push .
+          # Build Docker image using standard docker build (fast)
+          docker build --tag "$IMAGE_NAME" .
           
-          # Create build-docker association using metadata file
-          jf rt build-docker-create "$REPO_KEY" \
-            --image-file build-metadata --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" \
+          # Push to JFrog Artifactory with build-info integration
+          jf docker push "$IMAGE_NAME" \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
 
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
@@ -447,14 +442,13 @@ jobs:
           WORKER_IMAGE="${{ vars.DOCKER_REGISTRY }}/$REPO_KEY/$WORKER_NAME:$WORKER_TAG"
           echo "WORKER_IMAGE=$WORKER_IMAGE" >> $GITHUB_ENV
           
-          # Build and push worker image using correct pattern (linux/arm64 for Apple Silicon)
-          jf docker buildx build --platform linux/arm64 \
-            -f Dockerfile.worker --tag "$WORKER_IMAGE" \
-            --metadata-file=worker-build-metadata --output=type=image --push .
+          # Build worker Docker image using standard docker build (fast)
+          docker build -f Dockerfile.worker --tag "$WORKER_IMAGE" .
           
-          # Create build-docker association using metadata file
-          jf rt build-docker-create "$REPO_KEY" \
-            --image-file worker-build-metadata --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" \
+          # Push to JFrog Artifactory with build-info integration
+          jf docker push "$WORKER_IMAGE" \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
 
           echo "✅ Built, pushed, and associated Worker Docker image with build-info"
@@ -493,24 +487,11 @@ jobs:
           MIGRATIONS_IMAGE="$REGISTRY_URL/$REPO_KEY/$MIGR_NAME:$MIGR_TAG"
           echo "MIGRATIONS_IMAGE=$MIGRATIONS_IMAGE" >> $GITHUB_ENV
           
-          jf docker build -f Dockerfile.migrations -t "$MIGRATIONS_IMAGE" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          docker push "$MIGRATIONS_IMAGE"
+          # Build migrations Docker image using standard docker build (fast)
+          docker build -f Dockerfile.migrations --tag "$MIGRATIONS_IMAGE" .
           
-          echo "📋 Resolving Migrations image digest and associating with build-info..."
-          
-          MIGRATIONS_DIGEST=$(docker inspect "$MIGRATIONS_IMAGE" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
-          if [[ -z "$MIGRATIONS_DIGEST" || "$MIGRATIONS_DIGEST" == "<no value>" ]]; then
-            docker pull "$MIGRATIONS_IMAGE" >/dev/null 2>&1 || true
-            MIGRATIONS_DIGEST=$(docker inspect "$MIGRATIONS_IMAGE" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
-          fi
-          if [[ -z "$MIGRATIONS_DIGEST" || "$MIGRATIONS_DIGEST" == "<no value>" ]]; then
-            echo "❌ Could not resolve image digest for $MIGRATIONS_IMAGE" >&2; exit 1
-          fi
-          
-          echo "${MIGRATIONS_IMAGE%@*}@${MIGRATIONS_DIGEST}" > migrations_image.txt
-          echo "📋 Associating Migrations image: $(cat migrations_image.txt)"
-          jf rt build-docker-create "$REPO_KEY" \
-            --image-file migrations_image.txt \
+          # Push to JFrog Artifactory with build-info integration
+          jf docker push "$MIGRATIONS_IMAGE" \
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
