@@ -97,10 +97,10 @@ while [[ $# -gt 0 ]]; do
             echo "  --help, -h      Show this help message"
             echo ""
             echo "Examples:"
-            echo "  $0
-            echo "  $0 --unit
-            echo "  $0 --integration -v
-            echo "  $0 --auth --no-coverage
+            echo "  $0"
+            echo "  $0 --unit"
+            echo "  $0 --integration -v"
+            echo "  $0 --auth --no-coverage"
             exit 0
             ;;
         *)
