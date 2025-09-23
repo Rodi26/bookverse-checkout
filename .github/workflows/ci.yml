@@ -478,7 +478,7 @@ jobs:
 
           docker build --tag "$IMAGE_NAME" .
           
-          jf docker push "$IMAGE_NAME" \
+          jf rt docker-push "$IMAGE_NAME" "$REPO_KEY" \
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
@@ -588,7 +588,7 @@ jobs:
           
           docker build -f Dockerfile.worker --tag "$WORKER_IMAGE" .
           
-          jf docker push "$WORKER_IMAGE" \
+          jf rt docker-push "$WORKER_IMAGE" "$REPO_KEY" \
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
@@ -632,7 +632,7 @@ jobs:
           
           docker build -f Dockerfile.migrations --tag "$MIGRATIONS_IMAGE" .
           
-          jf docker push "$MIGRATIONS_IMAGE" \
+          jf rt docker-push "$MIGRATIONS_IMAGE" "$REPO_KEY" \
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
