@@ -391,17 +391,17 @@ jobs:
           # 🏗️ Payment stack: Install FastAPI and payment processing dependencies
           # Core dependencies for payment service API and financial operations
           jf pip install --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" \
-            fastapi==0.111.0 \         # High-performance async API framework
-            uvicorn==0.30.0 \          # ASGI server for payment API production deployment
-            httpx==0.27.0 \            # Async HTTP client for payment gateway integration
-            pydantic==2.11.9 \         # Data validation for payment models and transactions
-            python-multipart==0.0.20 \ # File upload support for payment documentation
-            requests==2.31.0 \         # HTTP client for payment gateway communications
-            python-dotenv==1.1.1 \     # Environment configuration for payment credentials
-            pytest==8.3.2 \           # Testing framework for payment business logic
-            pytest-cov==4.0.0 \       # Coverage reporting for payment code paths
-            SQLAlchemy \               # Database ORM for financial transaction management
-            coverage \                 # Coverage analysis for payment quality assurance
+            fastapi==0.111.0 \
+            uvicorn==0.30.0 \
+            httpx==0.27.0 \
+            pydantic==2.11.9 \
+            python-multipart==0.0.20 \
+            requests==2.31.0 \
+            python-dotenv==1.1.1 \
+            pytest==8.3.2 \
+            pytest-cov==4.0.0 \
+            SQLAlchemy \
+            coverage \
             || echo "⚠️ Some packages may have been installed from public PyPI"
           
           echo "✅ Dependencies installed using explicit package list (recommendations pattern)"
