@@ -1,12 +1,7 @@
 #!/bin/bash
-#
-# Simple BookVerse Core Demo Validation
-#
-# DEMO PURPOSE: Quick validation that the library is ready for demonstration.
 
 set -e
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -17,7 +12,6 @@ echo -e "${BLUE}🔍 BookVerse Core Demo Validation${NC}"
 echo -e "${BLUE}=================================${NC}"
 echo ""
 
-# Check library installation
 echo -e "${BLUE}📦 Checking library installation...${NC}"
 if python3 -c "import bookverse_core; print('✅ bookverse-core imported successfully')" 2>/dev/null; then
     echo -e "${GREEN}✅ Library installation validated${NC}"
@@ -27,7 +21,6 @@ else
     exit 1
 fi
 
-# Check key files
 echo -e "${BLUE}📁 Checking key files...${NC}"
 key_files=(
     "pyproject.toml"
@@ -49,7 +42,6 @@ for file in "${key_files[@]}"; do
     fi
 done
 
-# Check demo app
 echo -e "${BLUE}🎯 Testing demo app import...${NC}"
 cd app/
 if python3 -c "from main import app; print('Demo app imported successfully')" > /dev/null 2>&1; then
@@ -59,7 +51,6 @@ else
 fi
 cd ..
 
-# Check library components
 echo -e "${BLUE}🧩 Testing library components...${NC}"
 python3 -c "
 try:

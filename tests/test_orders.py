@@ -14,7 +14,6 @@ def test_create_order_happy_path(client, fake_inventory):
     data = resp.json()
     assert data["status"] == "CONFIRMED"
     assert Decimal(str(data["total"])) == Decimal("20.00")
-    # inventory decreased
     assert fake_inventory.available["book-1"] == 3
 
 
@@ -48,7 +47,6 @@ def test_idempotency_replay_returns_same_order(client, fake_inventory):
 
 
 def test_compensation_on_adjust_failure(client, fake_inventory):
-    # Seed with enough stock but force adjust failure on first call
     fake_inventory.seed("book-2", 3)
     fake_inventory.fail_adjust_for["book-2"] = True
     payload = {
@@ -58,9 +56,7 @@ def test_compensation_on_adjust_failure(client, fake_inventory):
         ]
     }
     resp = client.post("/orders", json=payload)
-    # We expect an upstream error and rollback of any partial adjustments
     assert resp.status_code in (400, 502)
-    # inventory remains unchanged
     assert fake_inventory.available["book-2"] == 3
 
 

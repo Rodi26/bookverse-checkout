@@ -15,7 +15,6 @@ def run_dispatch_loop() -> None:
     interval_seconds = float(os.getenv("DISPATCH_INTERVAL_SECONDS", "5"))
     logger.info("Starting checkout worker (demo stub)")
     while True:
-        # Demo-only: in a real worker this would read outbox rows and dispatch events idempotently
         logger.info("Dispatching queued order.created events (demo stub)")
         time.sleep(interval_seconds)
 

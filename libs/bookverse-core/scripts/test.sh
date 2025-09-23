@@ -1,20 +1,13 @@
 #!/bin/bash
-#
-# BookVerse Core Library Test Runner
-#
-# DEMO PURPOSE: Standardized test execution script that can be shared
-# across all BookVerse services for consistent testing practices.
 
 set -e
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
@@ -22,17 +15,14 @@ echo -e "${BLUE}📋 BookVerse Core Library Test Runner${NC}"
 echo -e "${BLUE}======================================${NC}"
 echo ""
 
-# Change to project directory
 cd "$PROJECT_DIR"
 
-# Check if virtual environment exists
 if [[ ! -d "venv" && ! -n "$VIRTUAL_ENV" ]]; then
     echo -e "${YELLOW}⚠️  No virtual environment detected. Consider creating one:${NC}"
     echo -e "${YELLOW}   python -m venv venv && source venv/bin/activate${NC}"
     echo ""
 fi
 
-# Install dependencies if needed
 echo -e "${BLUE}📦 Checking dependencies...${NC}"
 if [[ ! -f ".deps_installed" || "requirements-dev.txt" -nt ".deps_installed" ]]; then
     echo -e "${YELLOW}📥 Installing development dependencies...${NC}"
@@ -45,13 +35,12 @@ else
 fi
 echo ""
 
-# Parse command line arguments
 TEST_TYPE="all"
 COVERAGE=true
 VERBOSE=false
 MARKERS=""
 
-while [[ $# -gt 0 ]]; do
+while [[ $
     case $1 in
         --unit)
             TEST_TYPE="unit"
@@ -108,10 +97,10 @@ while [[ $# -gt 0 ]]; do
             echo "  --help, -h      Show this help message"
             echo ""
             echo "Examples:"
-            echo "  $0                    # Run all tests with coverage"
-            echo "  $0 --unit            # Run only unit tests"
-            echo "  $0 --integration -v  # Run integration tests with verbose output"
-            echo "  $0 --auth --no-coverage  # Run auth tests without coverage"
+            echo "  $0
+            echo "  $0 --unit
+            echo "  $0 --integration -v
+            echo "  $0 --auth --no-coverage
             exit 0
             ;;
         *)
@@ -122,7 +111,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Build pytest command
 PYTEST_CMD="pytest"
 
 if [[ "$COVERAGE" == true ]]; then
@@ -139,12 +127,10 @@ if [[ -n "$MARKERS" ]]; then
     PYTEST_CMD="$PYTEST_CMD $MARKERS"
 fi
 
-# Run tests
 echo -e "${BLUE}🧪 Running $TEST_TYPE tests...${NC}"
 echo -e "${BLUE}Command: $PYTEST_CMD${NC}"
 echo ""
 
-# Execute tests
 if eval "$PYTEST_CMD"; then
     echo ""
     echo -e "${GREEN}✅ All tests passed!${NC}"
@@ -154,7 +140,6 @@ if eval "$PYTEST_CMD"; then
         echo -e "${BLUE}📊 Coverage Report Generated${NC}"
         echo -e "${BLUE}HTML Report: file://$PROJECT_DIR/htmlcov/index.html${NC}"
         
-        # Extract coverage percentage
         if command -v coverage &> /dev/null; then
             COVERAGE_PERCENT=$(coverage report --format=total 2>/dev/null || echo "unknown")
             if [[ "$COVERAGE_PERCENT" != "unknown" ]]; then

@@ -7,7 +7,6 @@ from typing import Dict
 import pytest
 from fastapi.testclient import TestClient
 
-# Ensure repository root is on sys.path for `import app.*`
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -15,7 +14,6 @@ if str(REPO_ROOT) not in sys.path:
 
 class FakeInventoryClient:
     def __init__(self) -> None:
-        # book_id -> available
         self.available: Dict[str, int] = {}
         self.adjust_calls: Dict[str, int] = {}
         self.fail_adjust_for: Dict[str, bool] = {}
@@ -49,11 +47,9 @@ def fake_inventory(monkeypatch) -> FakeInventoryClient:
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch) -> TestClient:
-    # point to a temp sqlite file per test session
     db_file = tmp_path / "test_checkout.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_file}")
 
-    # reinit DB module and create tables
     import app.database as database
     import app.models as models
     reload(database)

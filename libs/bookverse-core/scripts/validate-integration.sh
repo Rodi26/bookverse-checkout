@@ -1,13 +1,7 @@
 #!/bin/bash
-#
-# BookVerse Core Integration Validation Script
-#
-# DEMO PURPOSE: Validates that bookverse-core is properly integrated
-# with the BookVerse demo infrastructure.
 
 set -e
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -18,7 +12,6 @@ echo -e "${BLUE}🔍 BookVerse Core Integration Validation${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
-# Check library installation
 echo -e "${BLUE}📦 Checking library installation...${NC}"
 if python3 -c "import bookverse_core; print('✅ bookverse-core imported successfully')" 2>/dev/null; then
     echo -e "${GREEN}✅ Library installation validated${NC}"
@@ -28,17 +21,14 @@ else
     exit 1
 fi
 
-# Check demo application
 echo -e "${BLUE}🎯 Checking demo application...${NC}"
 cd "$(dirname "$0")/../app"
 if python3 -c "from main import app; print('✅ Demo app imports successful')" > /dev/null 2>&1; then
     echo -e "${GREEN}✅ Demo application validated${NC}"
 else
     echo -e "${YELLOW}⚠️  Demo application has import issues (but may still work)${NC}"
-    # Don't exit, continue validation
 fi
 
-# Check configuration files
 echo -e "${BLUE}⚙️  Checking configuration files...${NC}"
 cd "$(dirname "$0")/.."
 config_files=(
@@ -56,7 +46,6 @@ for file in "${config_files[@]}"; do
     fi
 done
 
-# Check test suite (simplified check)
 echo -e "${BLUE}🧪 Checking test suite...${NC}"
 if [[ -d "tests/" ]]; then
     echo -e "${GREEN}✅ Test directory found${NC}"
@@ -67,7 +56,6 @@ else
     echo -e "${YELLOW}⚠️  Test directory not found${NC}"
 fi
 
-# Check Docker setup
 echo -e "${BLUE}🐳 Checking Docker setup...${NC}"
 if [[ -f "Dockerfile" ]]; then
     echo -e "${GREEN}✅ Dockerfile found${NC}"

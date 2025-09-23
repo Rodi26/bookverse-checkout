@@ -1,24 +1,10 @@
-"""
-BookVerse Core Demo Application
 
-DEMO PURPOSE: This application demonstrates how the bookverse-core library eliminates
-code duplication and standardizes patterns across BookVerse services.
 
-Key Demonstrations:
-1. Authentication - Shows shared JWT validation (eliminates 1,124 lines of duplication)
-2. Configuration - Shows unified config system (replaces 4 different approaches)  
-3. API Patterns - Shows standardized FastAPI setup and middleware
-4. Database - Shows shared session management and pagination
-5. Logging - Shows consistent logging across all operations
 
-This single demo app showcases what would normally require implementing
-authentication, configuration, and utilities in each individual service.
-"""
 
 import os
 from pathlib import Path
 
-# Import all bookverse-core components to demonstrate usage
 from bookverse_core.api import create_app
 from bookverse_core.config import BaseConfig, ConfigLoader
 from bookverse_core.auth import RequireAuth, get_current_user, AuthUser
@@ -27,29 +13,20 @@ from typing import Optional
 from bookverse_core.database import DatabaseConfig, get_database_session
 from bookverse_core.utils import setup_logging, get_logger, LogConfig
 
-# Demo-specific configuration
 class DemoConfig(BaseConfig):
-    """
-    Demo service configuration using bookverse-core patterns.
     
-    DEMO PURPOSE: Shows how any service can extend BaseConfig to get
-    consistent configuration handling with validation and multiple sources.
-    """
     
-    # Service-specific settings
     demo_message: str = "Hello from BookVerse Core Library Demo!"
     max_demo_items: int = 50
     enable_demo_features: bool = True
     
-    # Database settings (optional for demo)
     database_url: str = "sqlite:///./demo.db"
 
 
-# Load configuration using the unified system
 config_loader = ConfigLoader(DemoConfig)
 config = config_loader.load_from(
-    yaml_file="config/demo-config.yaml",  # Will use defaults if file doesn't exist
-    env_prefix="DEMO_",  # Allows DEMO_DATABASE_URL, DEMO_LOG_LEVEL, etc.
+    yaml_file="config/demo-config.yaml",
+    env_prefix="DEMO_",
     defaults={
         "service_name": "BookVerse Core Demo",
         "service_version": "0.1.0",
@@ -57,7 +34,6 @@ config = config_loader.load_from(
     }
 )
 
-# Set up logging using standardized configuration
 log_config = LogConfig(
     level=config.log_level,
     include_request_id=True
@@ -65,7 +41,6 @@ log_config = LogConfig(
 setup_logging(log_config, service_name="bookverse-core-demo")
 logger = get_logger(__name__)
 
-# Create FastAPI app using the standardized factory
 app = create_app(
     title=config.service_name,
     version=config.service_version,
@@ -73,31 +48,24 @@ app = create_app(
     config=config,
     enable_auth=config.auth_enabled,
     enable_cors=True,
-    health_checks=["basic", "auth"],  # Enable auth health checks to show integration
+    health_checks=["basic", "auth"],
     middleware_config={
         "logging": {"log_requests": True, "log_responses": True},
         "cors": {"allow_origins": ["*"]},
     }
 )
 
-# Include additional demo endpoints
 from api.demo_endpoints import router as demo_router
 app.include_router(demo_router)
 
-# Database configuration for demo
 db_config = DatabaseConfig(
     database_url=config.database_url,
-    echo=config.debug  # Show SQL queries in debug mode
+    echo=config.debug
 )
 
-# Demo endpoints showcasing library features
 @app.get("/demo/info")
 async def demo_info():
-    """
-    Demo endpoint showing configuration usage.
     
-    DEMO PURPOSE: Shows how services can access configuration in a standardized way.
-    """
     logger.info("📋 Demo info endpoint accessed")
     
     return {
@@ -121,12 +89,7 @@ async def demo_info():
 
 @app.get("/demo/auth/public")
 async def public_endpoint():
-    """
-    Public endpoint that doesn't require authentication.
     
-    DEMO PURPOSE: Shows how endpoints can be public while still having
-    auth middleware available for other endpoints.
-    """
     logger.info("🌐 Public endpoint accessed")
     
     return {
@@ -138,12 +101,7 @@ async def public_endpoint():
 
 @app.get("/demo/auth/protected")
 async def protected_endpoint(user: AuthUser = RequireAuth):
-    """
-    Protected endpoint requiring authentication.
     
-    DEMO PURPOSE: Shows how the shared authentication system works.
-    This demonstrates the JWT validation that was duplicated across all services.
-    """
     logger.info(f"🔐 Protected endpoint accessed by user: {user.email}")
     
     return {
@@ -162,11 +120,7 @@ async def protected_endpoint(user: AuthUser = RequireAuth):
 
 @app.get("/demo/auth/optional")
 async def optional_auth_endpoint(user: Optional[AuthUser] = Depends(get_current_user)):
-    """
-    Endpoint with optional authentication.
     
-    DEMO PURPOSE: Shows flexible authentication patterns available in the library.
-    """
     if user:
         logger.info(f"🔓 Optional auth endpoint accessed by authenticated user: {user.email}")
         return {
@@ -185,15 +139,9 @@ async def optional_auth_endpoint(user: Optional[AuthUser] = Depends(get_current_
 
 @app.get("/demo/config/current")
 async def current_config():
-    """
-    Show current configuration (sanitized for security).
     
-    DEMO PURPOSE: Demonstrates the unified configuration system that replaces
-    the 4 different configuration approaches used across services.
-    """
     logger.info("⚙️ Configuration endpoint accessed")
     
-    # Get sanitized config for display
     from bookverse_core.config.validation import sanitize_config_for_logging
     safe_config = sanitize_config_for_logging(config.to_dict())
     
@@ -218,13 +166,7 @@ async def current_config():
 
 @app.get("/demo/logging/test")
 async def logging_demo():
-    """
-    Demonstrate standardized logging patterns.
     
-    DEMO PURPOSE: Shows the consistent logging that replaces basic logging.basicConfig()
-    calls in each service with a more comprehensive, standardized approach.
-    """
-    # Import demo-specific logging helpers
     from bookverse_core.utils.logging import (
         log_demo_info, 
         log_duplication_eliminated,
@@ -233,14 +175,12 @@ async def logging_demo():
     
     logger.info("📝 Logging demo endpoint accessed")
     
-    # Demonstrate different log levels and patterns
     log_demo_info(logger, "This is a demo-specific log message")
     log_duplication_eliminated(logger, "Logging Setup", 50)
     
     logger.debug("This is a debug message (visible if debug=True)")
     logger.warning("This is a warning message with emoji ⚠️")
     
-    # Simulate an error for demonstration (caught safely)
     try:
         raise ValueError("This is a demo error - don't worry!")
     except ValueError as e:
@@ -262,12 +202,7 @@ async def logging_demo():
 
 @app.get("/demo/validation/test")
 async def validation_demo():
-    """
-    Demonstrate shared validation utilities.
     
-    DEMO PURPOSE: Shows reusable validation functions that eliminate
-    duplicate validation code across services.
-    """
     from bookverse_core.utils.validation import (
         validate_email,
         validate_uuid, 
@@ -278,7 +213,6 @@ async def validation_demo():
     
     logger.info("✅ Validation demo endpoint accessed")
     
-    # Test various validation functions
     test_cases = {
         "email_validation": {
             "valid_email": validate_email("user@bookverse.com"),
@@ -317,11 +251,7 @@ async def validation_demo():
 
 @app.get("/demo/summary")
 async def demo_summary():
-    """
-    Summary of all bookverse-core library benefits.
     
-    DEMO PURPOSE: Provides a comprehensive overview of what the commons library achieves.
-    """
     logger.info("📊 Demo summary endpoint accessed")
     
     return {
@@ -391,11 +321,9 @@ async def demo_summary():
 if __name__ == "__main__":
     import uvicorn
     
-    # Log startup information
     from bookverse_core.utils.logging import log_service_startup
     log_service_startup(logger, config.service_name, config.service_version, 8000)
     
-    # Start the demo application
     uvicorn.run(
         "main:app",
         host="0.0.0.0",

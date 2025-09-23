@@ -1,9 +1,4 @@
-"""
-Additional demo endpoints showcasing bookverse-core library features.
 
-DEMO PURPOSE: These endpoints demonstrate specific library features in isolation,
-making it easy to understand each component's benefits during presentations.
-"""
 
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -17,13 +12,10 @@ from bookverse_core.utils.validation import validate_email, sanitize_string
 
 logger = get_logger(__name__)
 
-# Create router for demo endpoints
 router = APIRouter(prefix="/demo", tags=["Demo Features"])
 
 
-# Demo data models
 class DemoItem(BaseModel):
-    """Demo item model for showcasing API patterns."""
     id: int
     name: str
     description: str
@@ -32,13 +24,11 @@ class DemoItem(BaseModel):
 
 
 class CreateDemoItemRequest(BaseModel):
-    """Request model for creating demo items."""
     name: str
     description: str
     category: str
 
 
-# In-memory demo data (normally this would be in a database)
 demo_items: List[DemoItem] = [
     DemoItem(id=1, name="Demo Book 1", description="A sample book for demonstration", category="fiction"),
     DemoItem(id=2, name="Demo Book 2", description="Another sample book", category="non-fiction"),
@@ -53,27 +43,18 @@ async def paginated_items_demo(
     pagination: PaginationParams = Depends(create_pagination_params),
     category: str = Query(None, description="Filter by category")
 ):
-    """
-    Demonstrate standardized pagination patterns.
     
-    DEMO PURPOSE: Shows how the shared pagination utilities work.
-    This replaces the create_pagination_meta() function that was only
-    in the inventory service, making it available to all services.
-    """
     logger.info(f"📄 Pagination demo: page {pagination.page}, per_page {pagination.per_page}")
     
-    # Filter items if category specified
     filtered_items = demo_items
     if category:
         filtered_items = [item for item in demo_items if item.category == category]
     
-    # Simulate pagination (normally done with database query)
     total = len(filtered_items)
     start_idx = pagination.offset
     end_idx = start_idx + pagination.per_page
     page_items = filtered_items[start_idx:end_idx]
     
-    # Use shared pagination utility
     paginated_response = paginate(
         items=page_items,
         total=total,
@@ -96,14 +77,9 @@ async def create_demo_item(
     request: CreateDemoItemRequest,
     user: AuthUser = RequireAuth
 ):
-    """
-    Demonstrate authenticated item creation with validation.
     
-    DEMO PURPOSE: Shows authentication, validation, and response patterns working together.
-    """
     logger.info(f"📝 Creating demo item: {request.name} by user {user.email}")
     
-    # Validate and sanitize input using shared utilities
     try:
         clean_name = sanitize_string(request.name, max_length=100)
         clean_description = sanitize_string(request.description, max_length=500)
@@ -116,7 +92,6 @@ async def create_demo_item(
             details={"validation_error": str(e)}
         )
     
-    # Create new item (simulate database save)
     new_id = max([item.id for item in demo_items]) + 1 if demo_items else 1
     new_item = DemoItem(
         id=new_id,
@@ -136,19 +111,9 @@ async def create_demo_item(
 
 @router.get("/middleware/demo")
 async def middleware_demo():
-    """
-    Demonstrate middleware functionality.
     
-    DEMO PURPOSE: Shows how the standardized middleware works.
-    Check the logs to see request ID tracking, timing, and error handling.
-    """
     logger.info("🔧 Middleware demo endpoint accessed")
     
-    # The middleware automatically adds:
-    # - Request ID tracking
-    # - Request/response logging  
-    # - Error handling
-    # - CORS headers
     
     return {
         "message": "Middleware demonstration",
@@ -172,16 +137,10 @@ async def middleware_demo():
 
 @router.get("/error/demo")
 async def error_handling_demo(simulate_error: bool = Query(False, description="Simulate an error")):
-    """
-    Demonstrate standardized error handling.
     
-    DEMO PURPOSE: Shows how the shared error handling middleware works.
-    """
     logger.info(f"❌ Error handling demo: simulate_error={simulate_error}")
     
     if simulate_error:
-        # This error will be caught by the error handling middleware
-        # and returned as a standardized error response
         raise ValueError("This is a simulated error for demonstration purposes")
     
     return create_success_response(
@@ -192,14 +151,9 @@ async def error_handling_demo(simulate_error: bool = Query(False, description="S
 
 @router.get("/responses/demo")
 async def response_patterns_demo():
-    """
-    Demonstrate standardized response patterns.
     
-    DEMO PURPOSE: Shows the consistent response models used across all services.
-    """
     logger.info("📋 Response patterns demo accessed")
     
-    # Show different response types
     success_example = create_success_response(
         data={"example": "data"},
         message="This is a success response"
@@ -228,17 +182,11 @@ async def response_patterns_demo():
 
 @router.get("/health/detailed")
 async def detailed_health_demo():
-    """
-    Demonstrate detailed health checking capabilities.
     
-    DEMO PURPOSE: Shows the comprehensive health check system that can be
-    shared across all services.
-    """
     from bookverse_core.auth import get_auth_status, check_auth_connection
     
     logger.info("🏥 Detailed health check demo accessed")
     
-    # Get authentication service status
     auth_status = get_auth_status()
     auth_connection = await check_auth_connection()
     

@@ -1,0 +1,2072 @@
+openapi: 3.0.3
+info:
+  title: BookVerse Checkout Service API
+  description: |
+    ## Overview
+    
+    The BookVerse Checkout Service handles the complete order processing workflow including order creation, payment processing, inventory coordination, and order fulfillment. Built with enterprise-grade reliability and security features.
+    
+    ## Key Features
+    
+    - **Complete Order Management**: End-to-end order lifecycle from creation to fulfillment
+    - **Multi-Gateway Payment Processing**: Support for multiple payment providers with failover
+    - **Inventory Integration**: Real-time inventory checking and reservation
+    - **Idempotency Support**: Safe retry mechanisms for critical operations
+    - **Fraud Prevention**: Advanced fraud detection and risk assessment
+    - **Audit Trail**: Comprehensive order and payment audit logging
+    
+    ## Payment Support
+    
+    - **Credit/Debit Cards**: Visa, Mastercard, American Express, Discover
+    - **Digital Wallets**: PayPal, Apple Pay, Google Pay, Amazon Pay
+    - **Bank Transfers**: ACH, wire transfers, SEPA (EU)
+    - **Buy Now Pay Later**: Affirm, Klarna, Afterpay integration
+    - **Cryptocurrency**: Bitcoin, Ethereum (via partner providers)
+    
+    ## Security & Compliance
+    
+    - **PCI DSS Level 1** compliant payment processing
+    - **SOX compliance** for financial audit trails
+    - **GDPR/CCPA** compliant data handling
+    - **3D Secure 2.0** for enhanced card authentication
+    - **End-to-end encryption** for sensitive data
+    
+    ## Order States
+    
+    ```
+    pending → confirmed → processing → shipped → delivered
+         ↓         ↓           ↓          ↓
+    cancelled  cancelled  cancelled  returned
+    ```
+    
+  version: 1.3.0
+  contact:
+    name: BookVerse Checkout Team
+    url: https://docs.bookverse.com/checkout-support
+    email: checkout-team@bookverse.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.bookverse.com/checkout/v1
+    description: Production server
+  - url: https://staging-api.bookverse.com/checkout/v1
+    description: Staging server
+  - url: http://localhost:8003
+    description: Local development server
+
+security:
+  - BearerAuth: []
+
+paths:
+  /orders:
+    get:
+      summary: List orders with filtering and pagination
+      description: |
+        Retrieve a paginated list of orders with comprehensive filtering options for order management and customer service.
+        
+        **Filtering Capabilities:**
+        - Order status and date ranges
+        - Customer information and order values
+        - Payment status and methods
+        - Geographic and shipping information
+        
+        **Use Cases:**
+        - Customer order history display
+        - Administrative order management
+        - Financial reconciliation and reporting
+        - Customer service inquiry handling
+        
+        **Performance:**
+        - Optimized queries with database indexing
+        - Response caching for frequently accessed data
+        - Pagination for large result sets
+      operationId: listOrders
+      tags:
+        - Orders
+      parameters:
+        - name: customer_id
+          in: query
+          description: Filter orders by customer ID
+          schema:
+            type: string
+            maxLength: 100
+            example: "customer_12345"
+        
+        - name: status
+          in: query
+          description: Filter orders by status
+          schema:
+            type: string
+            enum: [pending, confirmed, processing, shipped, delivered, cancelled, returned]
+            example: confirmed
+        
+        - name: payment_status
+          in: query
+          description: Filter orders by payment status
+          schema:
+            type: string
+            enum: [pending, authorized, captured, failed, refunded, partially_refunded]
+            example: captured
+        
+        - name: date_from
+          in: query
+          description: Filter orders from this date (inclusive)
+          schema:
+            type: string
+            format: date
+            example: "2024-01-01"
+        
+        - name: date_to
+          in: query
+          description: Filter orders to this date (inclusive)
+          schema:
+            type: string
+            format: date
+            example: "2024-01-31"
+        
+        - name: min_amount
+          in: query
+          description: Minimum order amount filter
+          schema:
+            type: number
+            format: decimal
+            minimum: 0
+            example: 25.00
+        
+        - name: max_amount
+          in: query
+          description: Maximum order amount filter
+          schema:
+            type: number
+            format: decimal
+            minimum: 0
+            example: 500.00
+        
+        - name: payment_method
+          in: query
+          description: Filter by payment method
+          schema:
+            type: string
+            enum: [credit_card, debit_card, paypal, apple_pay, google_pay, bank_transfer, crypto]
+            example: credit_card
+        
+        - name: sort_by
+          in: query
+          description: Field to sort results by
+          schema:
+            type: string
+            enum: [created_at, updated_at, total_amount, status]
+            default: created_at
+            example: created_at
+        
+        - name: sort_order
+          in: query
+          description: Sort direction
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+            example: desc
+        
+        - name: limit
+          in: query
+          description: Maximum number of results per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+            example: 20
+        
+        - name: offset
+          in: query
+          description: Number of results to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+            example: 0
+        
+        - name: include_items
+          in: query
+          description: Include order items in response
+          schema:
+            type: boolean
+            default: false
+            example: true
+
+      responses:
+        '200':
+          description: Orders retrieved successfully
+          headers:
+            X-Total-Count:
+              description: Total number of orders matching criteria
+              schema:
+                type: integer
+                example: 2847
+            X-Page-Count:
+              description: Total number of pages
+              schema:
+                type: integer
+                example: 143
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationInfo'
+                  summary:
+                    $ref: '#/components/schemas/OrderSummary'
+              examples:
+                order_list:
+                  summary: List of customer orders
+                  value:
+                    data:
+                      - id: "order_789abc123def"
+                        customer_id: "customer_12345"
+                        status: "delivered"
+                        payment_status: "captured"
+                        total_amount: 89.97
+                        currency: "USD"
+                        created_at: "2024-01-20T10:30:00Z"
+                        updated_at: "2024-01-25T14:22:00Z"
+                        item_count: 3
+                        shipping_address:
+                          name: "John Doe"
+                          street: "123 Main St"
+                          city: "New York"
+                          state: "NY"
+                          postal_code: "10001"
+                          country: "US"
+                    pagination:
+                      limit: 20
+                      offset: 0
+                      total: 2847
+                      has_more: true
+                    summary:
+                      total_orders: 2847
+                      total_value: 156742.33
+                      avg_order_value: 55.12
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      summary: Create a new order
+      description: |
+        Create a new order with comprehensive validation, inventory checking, and idempotency support for safe retries.
+        
+        **Order Creation Process:**
+        1. **Input Validation**: Validate customer data and order items
+        2. **Inventory Check**: Verify book availability and reserve stock
+        3. **Pricing Calculation**: Calculate totals, taxes, and shipping
+        4. **Risk Assessment**: Fraud detection and risk scoring
+        5. **Order Creation**: Create order with unique identifier
+        6. **Audit Logging**: Record order creation for compliance
+        
+        **Business Rules:**
+        - Minimum order value: $5.00
+        - Maximum order value: $10,000.00
+        - Maximum 50 items per order
+        - Valid shipping address required
+        - Customer information must be complete
+        
+        **Idempotency:**
+        - Use `Idempotency-Key` header for safe retries
+        - Duplicate requests return the same order
+        - Keys expire after 24 hours
+      operationId: createOrder
+      tags:
+        - Orders
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          description: |
+            Idempotency key for safe order creation retries.
+            Use a unique UUID for each order attempt.
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+            examples:
+              simple_order:
+                summary: Simple single-book order
+                value:
+                  customer_id: "customer_12345"
+                  items:
+                    - book_id: 123
+                      quantity: 1
+                  shipping_address:
+                    name: "John Doe"
+                    email: "john@example.com"
+                    phone: "+1-555-123-4567"
+                    street: "123 Main St"
+                    city: "New York"
+                    state: "NY"
+                    postal_code: "10001"
+                    country: "US"
+                  billing_address:
+                    name: "John Doe"
+                    street: "123 Main St"
+                    city: "New York"
+                    state: "NY"
+                    postal_code: "10001"
+                    country: "US"
+                  notes: "Please handle with care"
+              
+              multi_item_order:
+                summary: Multi-item order with discount
+                value:
+                  customer_id: "customer_67890"
+                  items:
+                    - book_id: 123
+                      quantity: 2
+                    - book_id: 456
+                      quantity: 1
+                    - book_id: 789
+                      quantity: 3
+                  shipping_address:
+                    name: "Jane Smith"
+                    email: "jane@example.com"
+                    phone: "+1-555-987-6543"
+                    street: "456 Oak Avenue"
+                    city: "Los Angeles"
+                    state: "CA"
+                    postal_code: "90210"
+                    country: "US"
+                  billing_address:
+                    name: "Jane Smith"
+                    street: "456 Oak Avenue"
+                    city: "Los Angeles"
+                    state: "CA"
+                    postal_code: "90210"
+                    country: "US"
+                  discount_code: "SAVE20"
+                  notes: "Gift wrap requested"
+
+      responses:
+        '201':
+          description: Order created successfully
+          headers:
+            Location:
+              description: URL of the created order
+              schema:
+                type: string
+                format: uri
+                example: "/orders/order_789abc123def"
+            Idempotency-Key:
+              description: Echo of the idempotency key used
+              schema:
+                type: string
+                example: "550e8400-e29b-41d4-a716-446655440000"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Order'
+                  processing_info:
+                    type: object
+                    properties:
+                      inventory_reserved:
+                        type: boolean
+                        description: Whether inventory was successfully reserved
+                        example: true
+                      risk_score:
+                        type: number
+                        format: float
+                        description: Order risk assessment score (0-1)
+                        example: 0.15
+                      estimated_shipping_date:
+                        type: string
+                        format: date
+                        description: Estimated shipping date
+                        example: "2024-01-27"
+                      processing_time_ms:
+                        type: integer
+                        description: Order processing time
+                        example: 234
+              examples:
+                created_order:
+                  summary: Successfully created order
+                  value:
+                    data:
+                      id: "order_789abc123def"
+                      customer_id: "customer_12345"
+                      status: "pending"
+                      payment_status: "pending"
+                      items:
+                        - book_id: 123
+                          title: "Clean Code"
+                          author: "Robert Martin"
+                          quantity: 1
+                          unit_price: 35.99
+                          total_price: 35.99
+                      subtotal: 35.99
+                      tax_amount: 3.24
+                      shipping_amount: 7.99
+                      discount_amount: 0.00
+                      total_amount: 47.22
+                      currency: "USD"
+                      created_at: "2024-01-25T16:30:00Z"
+                      estimated_delivery: "2024-02-01T00:00:00Z"
+                    processing_info:
+                      inventory_reserved: true
+                      risk_score: 0.15
+                      estimated_shipping_date: "2024-01-27"
+                      processing_time_ms: 234
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Inventory conflict or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              examples:
+                inventory_conflict:
+                  summary: Insufficient inventory
+                  value:
+                    type: "https://docs.bookverse.com/errors/insufficient-inventory"
+                    title: "Insufficient Inventory"
+                    status: 409
+                    detail: "Book 'Clean Code' has only 2 copies available, but 5 were requested"
+                    instance: "/orders"
+                    inventory_details:
+                      book_id: 123
+                      available: 2
+                      requested: 5
+                
+                idempotency_conflict:
+                  summary: Idempotency key reused with different data
+                  value:
+                    type: "https://docs.bookverse.com/errors/idempotency-conflict"
+                    title: "Idempotency Conflict"
+                    status: 409
+                    detail: "Idempotency key already used with different order data"
+                    instance: "/orders"
+                    existing_order_id: "order_456def789abc"
+
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /orders/{order_id}:
+    parameters:
+      - name: order_id
+        in: path
+        required: true
+        description: Unique order identifier
+        schema:
+          type: string
+          pattern: '^order_[a-zA-Z0-9]{12}$'
+          example: "order_789abc123def"
+
+    get:
+      summary: Get order details
+      description: |
+        Retrieve comprehensive order information including items, payment status, shipping details, and order history.
+        
+        **Information Included:**
+        - Complete order details and current status
+        - All order items with pricing breakdown
+        - Payment information and transaction history
+        - Shipping address and tracking information
+        - Order timeline and status changes
+        - Customer information (if authorized)
+        
+        **Authorization:**
+        - Customers can view their own orders
+        - Admin users can view any order
+        - Customer service can view with proper permissions
+        
+        **Performance:**
+        - Cached responses for completed orders
+        - Real-time data for active orders
+        - Optimized queries for order details
+      operationId: getOrder
+      tags:
+        - Orders
+      parameters:
+        - name: include_history
+          in: query
+          description: Include order status change history
+          schema:
+            type: boolean
+            default: false
+            example: true
+        
+        - name: include_payments
+          in: query
+          description: Include payment transaction details
+          schema:
+            type: boolean
+            default: false
+            example: true
+
+      responses:
+        '200':
+          description: Order details retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/OrderDetailed'
+                  payment_history:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PaymentTransaction'
+                    description: Included only when include_payments=true
+                  status_history:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OrderStatusChange'
+                    description: Included only when include_history=true
+              examples:
+                detailed_order:
+                  summary: Complete order with all details
+                  value:
+                    data:
+                      id: "order_789abc123def"
+                      customer_id: "customer_12345"
+                      status: "processing"
+                      payment_status: "captured"
+                      items:
+                        - book_id: 123
+                          title: "Clean Code: A Handbook of Agile Software Craftsmanship"
+                          author: "Robert C. Martin"
+                          isbn: "978-0132350884"
+                          quantity: 2
+                          unit_price: 35.99
+                          total_price: 71.98
+                        - book_id: 456
+                          title: "Design Patterns"
+                          author: "Gang of Four"
+                          isbn: "978-0201633612"
+                          quantity: 1
+                          unit_price: 54.99
+                          total_price: 54.99
+                      subtotal: 126.97
+                      tax_amount: 11.43
+                      shipping_amount: 9.99
+                      discount_amount: 12.70
+                      total_amount: 135.69
+                      currency: "USD"
+                      shipping_address:
+                        name: "John Doe"
+                        email: "john@example.com"
+                        phone: "+1-555-123-4567"
+                        street: "123 Main St"
+                        city: "New York"
+                        state: "NY"
+                        postal_code: "10001"
+                        country: "US"
+                      tracking_number: "1Z999AA1234567890"
+                      estimated_delivery: "2024-02-01T00:00:00Z"
+                      created_at: "2024-01-25T16:30:00Z"
+                      updated_at: "2024-01-26T09:15:00Z"
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Access denied - Cannot view this order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://docs.bookverse.com/errors/order-access-denied"
+                title: "Order Access Denied"
+                status: 403
+                detail: "You do not have permission to view this order"
+                instance: "/orders/order_789abc123def"
+        '404':
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://docs.bookverse.com/errors/order-not-found"
+                title: "Order Not Found"
+                status: 404
+                detail: "No order found with ID order_789abc123def"
+                instance: "/orders/order_789abc123def"
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    patch:
+      summary: Update order status or details
+      description: |
+        Update order information including status changes, shipping details, and customer information with comprehensive validation and audit logging.
+        
+        **Updatable Fields:**
+        - Order status (with business rule validation)
+        - Shipping address (before processing)
+        - Customer notes and special instructions
+        - Internal notes (admin only)
+        - Delivery preferences
+        
+        **Business Rules:**
+        - Status transitions must follow valid state machine
+        - Shipping address cannot be changed after processing
+        - Payment information cannot be modified directly
+        - Cancellation requires authorization and inventory handling
+        
+        **Audit Trail:**
+        - All changes are logged with timestamps
+        - User attribution for all modifications
+        - Compliance tracking for financial changes
+      operationId: updateOrder
+      tags:
+        - Orders
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrderRequest'
+            examples:
+              status_update:
+                summary: Update order status
+                value:
+                  status: "shipped"
+                  tracking_number: "1Z999AA1234567890"
+                  notes: "Package shipped via UPS Ground"
+              
+              address_update:
+                summary: Update shipping address
+                value:
+                  shipping_address:
+                    name: "John Doe"
+                    street: "456 New Address St"
+                    city: "Boston"
+                    state: "MA"
+                    postal_code: "02101"
+                    country: "US"
+                  notes: "Address updated per customer request"
+              
+              cancellation:
+                summary: Cancel order
+                value:
+                  status: "cancelled"
+                  cancellation_reason: "customer_request"
+                  notes: "Customer requested cancellation before shipping"
+
+      responses:
+        '200':
+          description: Order updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Order'
+                  changes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OrderChange'
+                  metadata:
+                    type: object
+                    properties:
+                      updated_by:
+                        type: string
+                        example: "admin@bookverse.com"
+                      update_reason:
+                        type: string
+                        example: "Status update - order shipped"
+                      processing_time_ms:
+                        type: integer
+                        example: 89
+              examples:
+                status_updated:
+                  summary: Order status successfully updated
+                  value:
+                    data:
+                      id: "order_789abc123def"
+                      status: "shipped"
+                      tracking_number: "1Z999AA1234567890"
+                      updated_at: "2024-01-26T14:30:00Z"
+                    changes:
+                      - field: "status"
+                        old_value: "processing"
+                        new_value: "shipped"
+                        timestamp: "2024-01-26T14:30:00Z"
+                      - field: "tracking_number"
+                        old_value: null
+                        new_value: "1Z999AA1234567890"
+                        timestamp: "2024-01-26T14:30:00Z"
+                    metadata:
+                      updated_by: "fulfillment@bookverse.com"
+                      update_reason: "Order shipped via UPS Ground"
+                      processing_time_ms: 89
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          description: Invalid status transition or business rule violation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://docs.bookverse.com/errors/invalid-status-transition"
+                title: "Invalid Status Transition"
+                status: 409
+                detail: "Cannot change status from 'delivered' to 'processing'"
+                instance: "/orders/order_789abc123def"
+                current_status: "delivered"
+                requested_status: "processing"
+                valid_transitions: ["returned"]
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /orders/{order_id}/payment:
+    post:
+      summary: Process payment for an order
+      description: |
+        Process payment for an existing order with support for multiple payment methods, fraud detection, and compliance features.
+        
+        **Payment Methods Supported:**
+        - Credit/Debit Cards (Visa, Mastercard, Amex, Discover)
+        - Digital Wallets (PayPal, Apple Pay, Google Pay)
+        - Bank Transfers (ACH, Wire, SEPA)
+        - Buy Now Pay Later (Affirm, Klarna, Afterpay)
+        
+        **Security Features:**
+        - PCI DSS compliant processing
+        - 3D Secure 2.0 authentication
+        - Real-time fraud detection
+        - Encryption for sensitive data
+        - Tokenization for stored payment methods
+        
+        **Payment Process:**
+        1. **Validation**: Verify order status and payment eligibility
+        2. **Fraud Check**: Risk assessment and fraud detection
+        3. **Authorization**: Authorize payment with provider
+        4. **Capture**: Capture funds (immediate or delayed)
+        5. **Confirmation**: Update order status and send notifications
+        
+        **Compliance:**
+        - SOX audit trail requirements
+        - GDPR data protection standards
+        - PCI DSS security requirements
+      operationId: processPayment
+      tags:
+        - Orders
+        - Payments
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^order_[a-zA-Z0-9]{12}$'
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+            examples:
+              credit_card:
+                summary: Credit card payment
+                value:
+                  payment_method: "credit_card"
+                  card_details:
+                    card_number: "4111111111111111"
+                    expiry_month: 12
+                    expiry_year: 2025
+                    cvv: "123"
+                    cardholder_name: "John Doe"
+                  billing_address:
+                    name: "John Doe"
+                    street: "123 Main St"
+                    city: "New York"
+                    state: "NY"
+                    postal_code: "10001"
+                    country: "US"
+                  save_payment_method: false
+              
+              paypal:
+                summary: PayPal payment
+                value:
+                  payment_method: "paypal"
+                  paypal_details:
+                    return_url: "https://bookverse.com/orders/order_789abc123def/success"
+                    cancel_url: "https://bookverse.com/orders/order_789abc123def/cancel"
+              
+              stored_card:
+                summary: Stored payment method
+                value:
+                  payment_method: "stored_card"
+                  payment_method_id: "pm_1234567890abcdef"
+                  cvv: "123"
+
+      responses:
+        '200':
+          description: Payment processed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PaymentResult'
+                  order_status:
+                    type: string
+                    enum: [confirmed, processing]
+                    description: Updated order status after payment
+                    example: "confirmed"
+                  next_steps:
+                    type: object
+                    properties:
+                      action_required:
+                        type: boolean
+                        description: Whether additional action is required
+                        example: false
+                      redirect_url:
+                        type: string
+                        format: uri
+                        description: URL for 3D Secure or wallet authentication
+                        example: "https://secure.payment.com/3ds/auth/12345"
+                      expires_at:
+                        type: string
+                        format: date-time
+                        description: When redirect expires
+                        example: "2024-01-25T17:00:00Z"
+              examples:
+                successful_payment:
+                  summary: Successful credit card payment
+                  value:
+                    data:
+                      transaction_id: "txn_abc123def456"
+                      payment_method: "credit_card"
+                      amount: 135.69
+                      currency: "USD"
+                      status: "captured"
+                      card_last_four: "1111"
+                      authorization_code: "123456"
+                      risk_score: 0.12
+                      processing_time_ms: 1234
+                      created_at: "2024-01-25T16:45:00Z"
+                    order_status: "confirmed"
+                    next_steps:
+                      action_required: false
+
+        '202':
+          description: Payment requires additional authentication
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PaymentResult'
+                  next_steps:
+                    type: object
+                    properties:
+                      action_required:
+                        type: boolean
+                        example: true
+                      redirect_url:
+                        type: string
+                        format: uri
+                        example: "https://secure.payment.com/3ds/auth/12345"
+                      expires_at:
+                        type: string
+                        format: date-time
+                        example: "2024-01-25T17:00:00Z"
+              examples:
+                authentication_required:
+                  summary: 3D Secure authentication required
+                  value:
+                    data:
+                      transaction_id: "txn_def456ghi789"
+                      payment_method: "credit_card"
+                      amount: 135.69
+                      currency: "USD"
+                      status: "requires_authentication"
+                      created_at: "2024-01-25T16:45:00Z"
+                    next_steps:
+                      action_required: true
+                      redirect_url: "https://secure.payment.com/3ds/auth/12345"
+                      expires_at: "2024-01-25T17:00:00Z"
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '402':
+          description: Payment required - Insufficient funds or payment declined
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              examples:
+                insufficient_funds:
+                  summary: Insufficient funds
+                  value:
+                    type: "https://docs.bookverse.com/errors/payment-declined"
+                    title: "Payment Declined"
+                    status: 402
+                    detail: "Payment was declined by the issuing bank: Insufficient funds"
+                    instance: "/orders/order_789abc123def/payment"
+                    decline_code: "insufficient_funds"
+                    payment_method: "credit_card"
+                
+                fraud_detected:
+                  summary: Fraud detected
+                  value:
+                    type: "https://docs.bookverse.com/errors/payment-blocked"
+                    title: "Payment Blocked"
+                    status: 402
+                    detail: "Payment blocked due to suspicious activity"
+                    instance: "/orders/order_789abc123def/payment"
+                    decline_code: "fraud_suspected"
+                    risk_score: 0.89
+
+        '404':
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          description: Order cannot be paid (wrong status, already paid, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://docs.bookverse.com/errors/order-not-payable"
+                title: "Order Not Payable"
+                status: 409
+                detail: "Order is already paid and cannot be charged again"
+                instance: "/orders/order_789abc123def/payment"
+                order_status: "confirmed"
+                payment_status: "captured"
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /orders/{order_id}/cancel:
+    post:
+      summary: Cancel an order
+      description: |
+        Cancel an existing order with proper inventory restoration, payment handling, and audit trail creation.
+        
+        **Cancellation Rules:**
+        - Orders can be cancelled before shipping
+        - Confirmed orders may require authorization
+        - Partial cancellations not supported (use refunds instead)
+        - Inventory is automatically restored
+        - Payments are refunded according to policy
+        
+        **Automatic Actions:**
+        - Inventory reservation release
+        - Payment authorization void/refund
+        - Customer notification
+        - Audit trail creation
+        - Partner system notifications
+        
+        **Authorization Levels:**
+        - Customer: Own orders (before processing)
+        - Customer Service: Any order with reason
+        - Admin: Any order at any time
+      operationId: cancelOrder
+      tags:
+        - Orders
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^order_[a-zA-Z0-9]{12}$'
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - reason
+              properties:
+                reason:
+                  type: string
+                  enum: [customer_request, fraud_detected, inventory_unavailable, payment_failed, duplicate_order, business_decision]
+                  description: Reason for cancellation
+                  example: "customer_request"
+                notes:
+                  type: string
+                  maxLength: 500
+                  description: Additional cancellation notes
+                  example: "Customer changed mind before shipping"
+                refund_method:
+                  type: string
+                  enum: [original_method, store_credit, manual_process]
+                  default: original_method
+                  description: How to process the refund
+                  example: "original_method"
+                notify_customer:
+                  type: boolean
+                  default: true
+                  description: Whether to send cancellation notification
+                  example: true
+            examples:
+              customer_cancellation:
+                summary: Customer-requested cancellation
+                value:
+                  reason: "customer_request"
+                  notes: "Customer changed mind before shipping"
+                  refund_method: "original_method"
+                  notify_customer: true
+              
+              fraud_cancellation:
+                summary: Fraud-related cancellation
+                value:
+                  reason: "fraud_detected"
+                  notes: "High-risk transaction flagged by fraud detection system"
+                  refund_method: "manual_process"
+                  notify_customer: false
+
+      responses:
+        '200':
+          description: Order cancelled successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      order_id:
+                        type: string
+                        example: "order_789abc123def"
+                      status:
+                        type: string
+                        enum: [cancelled]
+                        example: "cancelled"
+                      cancelled_at:
+                        type: string
+                        format: date-time
+                        example: "2024-01-25T17:15:00Z"
+                      cancellation_reason:
+                        type: string
+                        example: "customer_request"
+                  refund_info:
+                    type: object
+                    properties:
+                      refund_id:
+                        type: string
+                        example: "refund_ghi789jkl012"
+                      amount:
+                        type: number
+                        format: decimal
+                        example: 135.69
+                      method:
+                        type: string
+                        example: "original_method"
+                      estimated_completion:
+                        type: string
+                        format: date
+                        example: "2024-01-30"
+                  inventory_restored:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        book_id:
+                          type: integer
+                          example: 123
+                        quantity:
+                          type: integer
+                          example: 2
+                  notifications:
+                    type: object
+                    properties:
+                      customer_notified:
+                        type: boolean
+                        example: true
+                      email_sent:
+                        type: boolean
+                        example: true
+              examples:
+                cancelled_order:
+                  summary: Successfully cancelled order
+                  value:
+                    data:
+                      order_id: "order_789abc123def"
+                      status: "cancelled"
+                      cancelled_at: "2024-01-25T17:15:00Z"
+                      cancellation_reason: "customer_request"
+                    refund_info:
+                      refund_id: "refund_ghi789jkl012"
+                      amount: 135.69
+                      method: "original_method"
+                      estimated_completion: "2024-01-30"
+                    inventory_restored:
+                      - book_id: 123
+                        quantity: 2
+                      - book_id: 456
+                        quantity: 1
+                    notifications:
+                      customer_notified: true
+                      email_sent: true
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          description: Order cannot be cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://docs.bookverse.com/errors/order-not-cancellable"
+                title: "Order Cannot Be Cancelled"
+                status: 409
+                detail: "Order has already been shipped and cannot be cancelled"
+                instance: "/orders/order_789abc123def/cancel"
+                order_status: "shipped"
+                shipped_at: "2024-01-24T10:30:00Z"
+                tracking_number: "1Z999AA1234567890"
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /health:
+    get:
+      summary: Service health check
+      description: |
+        Comprehensive health check for the checkout service including payment gateway connectivity, database health, and order processing capabilities.
+      operationId: healthCheck
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+              examples:
+                healthy:
+                  summary: All systems healthy
+                  value:
+                    status: "healthy"
+                    timestamp: "2024-01-25T16:45:00Z"
+                    version: "1.3.0"
+                    uptime_seconds: 86400
+                    checks:
+                      database:
+                        status: "healthy"
+                        response_time_ms: 15
+                        details: "Connection pool: 12/30 active"
+                      payment_gateway:
+                        status: "healthy"
+                        response_time_ms: 234
+                        details: "Primary gateway operational"
+                      inventory_service:
+                        status: "healthy"
+                        response_time_ms: 67
+                        details: "Inventory service responding"
+                    metrics:
+                      orders_per_minute: 12.5
+                      average_order_value: 67.89
+                      payment_success_rate: 0.97
+
+        '503':
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Order:
+      type: object
+      required:
+        - id
+        - customer_id
+        - status
+        - payment_status
+        - total_amount
+        - currency
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          pattern: '^order_[a-zA-Z0-9]{12}$'
+          description: Unique order identifier
+          example: "order_789abc123def"
+          readOnly: true
+        customer_id:
+          type: string
+          maxLength: 100
+          description: Customer identifier
+          example: "customer_12345"
+        status:
+          type: string
+          enum: [pending, confirmed, processing, shipped, delivered, cancelled, returned]
+          description: Current order status
+          example: "confirmed"
+        payment_status:
+          type: string
+          enum: [pending, authorized, captured, failed, refunded, partially_refunded]
+          description: Payment processing status
+          example: "captured"
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+          description: Order items
+        subtotal:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Subtotal before taxes and shipping
+          example: 126.97
+        tax_amount:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Tax amount
+          example: 11.43
+        shipping_amount:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Shipping cost
+          example: 9.99
+        discount_amount:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Total discount amount
+          example: 12.70
+        total_amount:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Final total amount
+          example: 135.69
+        currency:
+          type: string
+          enum: [USD, EUR, GBP, CAD]
+          description: Order currency
+          example: "USD"
+        shipping_address:
+          $ref: '#/components/schemas/Address'
+        billing_address:
+          $ref: '#/components/schemas/Address'
+        notes:
+          type: string
+          maxLength: 500
+          description: Customer notes
+          example: "Please handle with care"
+        internal_notes:
+          type: string
+          maxLength: 1000
+          description: Internal processing notes
+          example: "Customer service escalation #12345"
+        tracking_number:
+          type: string
+          maxLength: 50
+          description: Shipping tracking number
+          example: "1Z999AA1234567890"
+        estimated_delivery:
+          type: string
+          format: date-time
+          description: Estimated delivery date
+          example: "2024-02-01T00:00:00Z"
+        created_at:
+          type: string
+          format: date-time
+          description: Order creation timestamp
+          example: "2024-01-25T16:30:00Z"
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2024-01-26T09:15:00Z"
+          readOnly: true
+
+    OrderDetailed:
+      allOf:
+        - $ref: '#/components/schemas/Order'
+        - type: object
+          properties:
+            item_count:
+              type: integer
+              description: Total number of items
+              example: 3
+            weight_total:
+              type: number
+              format: decimal
+              description: Total package weight in pounds
+              example: 2.5
+            discount_code:
+              type: string
+              description: Applied discount code
+              example: "SAVE20"
+            risk_score:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 1
+              description: Fraud risk score
+              example: 0.15
+            fulfillment_center:
+              type: string
+              description: Fulfillment center handling the order
+              example: "NYC-01"
+            created_by:
+              type: string
+              description: User who created the order
+              example: "customer_12345"
+            last_modified_by:
+              type: string
+              description: User who last modified the order
+              example: "admin@bookverse.com"
+
+    OrderItem:
+      type: object
+      required:
+        - book_id
+        - title
+        - quantity
+        - unit_price
+        - total_price
+      properties:
+        book_id:
+          type: integer
+          format: int64
+          description: Book identifier
+          example: 123
+        title:
+          type: string
+          description: Book title
+          example: "Clean Code: A Handbook of Agile Software Craftsmanship"
+        author:
+          type: string
+          description: Book author
+          example: "Robert C. Martin"
+        isbn:
+          type: string
+          description: Book ISBN
+          example: "978-0132350884"
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Quantity ordered
+          example: 2
+        unit_price:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Price per unit
+          example: 35.99
+        total_price:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Total price for this item
+          example: 71.98
+        discount_amount:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Discount applied to this item
+          example: 7.20
+
+    Address:
+      type: object
+      required:
+        - name
+        - street
+        - city
+        - postal_code
+        - country
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          description: Recipient name
+          example: "John Doe"
+        email:
+          type: string
+          format: email
+          maxLength: 150
+          description: Email address
+          example: "john@example.com"
+        phone:
+          type: string
+          maxLength: 20
+          description: Phone number
+          example: "+1-555-123-4567"
+        company:
+          type: string
+          maxLength: 100
+          description: Company name
+          example: "Acme Corp"
+        street:
+          type: string
+          maxLength: 200
+          description: Street address
+          example: "123 Main St, Apt 4B"
+        city:
+          type: string
+          maxLength: 100
+          description: City
+          example: "New York"
+        state:
+          type: string
+          maxLength: 50
+          description: State or province
+          example: "NY"
+        postal_code:
+          type: string
+          maxLength: 20
+          description: Postal/ZIP code
+          example: "10001"
+        country:
+          type: string
+          pattern: '^[A-Z]{2}$'
+          description: Country code (ISO 3166-1 alpha-2)
+          example: "US"
+
+    CreateOrderRequest:
+      type: object
+      required:
+        - customer_id
+        - items
+        - shipping_address
+      properties:
+        customer_id:
+          type: string
+          maxLength: 100
+          description: Customer identifier
+          example: "customer_12345"
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            type: object
+            required:
+              - book_id
+              - quantity
+            properties:
+              book_id:
+                type: integer
+                format: int64
+                minimum: 1
+                description: Book identifier
+                example: 123
+              quantity:
+                type: integer
+                minimum: 1
+                maximum: 100
+                description: Quantity to order
+                example: 2
+        shipping_address:
+          $ref: '#/components/schemas/Address'
+        billing_address:
+          $ref: '#/components/schemas/Address'
+        discount_code:
+          type: string
+          maxLength: 50
+          description: Discount code to apply
+          example: "SAVE20"
+        notes:
+          type: string
+          maxLength: 500
+          description: Customer notes
+          example: "Please handle with care"
+        shipping_preference:
+          type: string
+          enum: [standard, expedited, overnight]
+          default: standard
+          description: Shipping speed preference
+          example: "standard"
+
+    UpdateOrderRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, confirmed, processing, shipped, delivered, cancelled, returned]
+          description: New order status
+          example: "shipped"
+        shipping_address:
+          $ref: '#/components/schemas/Address'
+        notes:
+          type: string
+          maxLength: 500
+          description: Customer notes
+          example: "Updated delivery instructions"
+        internal_notes:
+          type: string
+          maxLength: 1000
+          description: Internal processing notes
+          example: "Customer service escalation resolved"
+        tracking_number:
+          type: string
+          maxLength: 50
+          description: Shipping tracking number
+          example: "1Z999AA1234567890"
+        estimated_delivery:
+          type: string
+          format: date-time
+          description: Estimated delivery date
+          example: "2024-02-01T00:00:00Z"
+        cancellation_reason:
+          type: string
+          enum: [customer_request, fraud_detected, inventory_unavailable, payment_failed, duplicate_order, business_decision]
+          description: Reason for cancellation (when status = cancelled)
+          example: "customer_request"
+
+    PaymentRequest:
+      type: object
+      required:
+        - payment_method
+      properties:
+        payment_method:
+          type: string
+          enum: [credit_card, debit_card, paypal, apple_pay, google_pay, bank_transfer, stored_card]
+          description: Payment method type
+          example: "credit_card"
+        card_details:
+          type: object
+          description: Credit/debit card details (required for card payments)
+          required:
+            - card_number
+            - expiry_month
+            - expiry_year
+            - cvv
+            - cardholder_name
+          properties:
+            card_number:
+              type: string
+              pattern: '^[0-9]{13,19}$'
+              description: Card number (will be tokenized)
+              example: "4111111111111111"
+            expiry_month:
+              type: integer
+              minimum: 1
+              maximum: 12
+              description: Card expiry month
+              example: 12
+            expiry_year:
+              type: integer
+              minimum: 2024
+              maximum: 2050
+              description: Card expiry year
+              example: 2025
+            cvv:
+              type: string
+              pattern: '^[0-9]{3,4}$'
+              description: Card verification value
+              example: "123"
+            cardholder_name:
+              type: string
+              maxLength: 100
+              description: Name on card
+              example: "John Doe"
+        paypal_details:
+          type: object
+          description: PayPal payment details
+          properties:
+            return_url:
+              type: string
+              format: uri
+              description: URL to return to after PayPal authentication
+              example: "https://bookverse.com/orders/success"
+            cancel_url:
+              type: string
+              format: uri
+              description: URL to return to if PayPal is cancelled
+              example: "https://bookverse.com/orders/cancel"
+        payment_method_id:
+          type: string
+          description: ID of stored payment method
+          example: "pm_1234567890abcdef"
+        billing_address:
+          $ref: '#/components/schemas/Address'
+        save_payment_method:
+          type: boolean
+          default: false
+          description: Whether to save payment method for future use
+          example: false
+        cvv:
+          type: string
+          pattern: '^[0-9]{3,4}$'
+          description: CVV for stored card verification
+          example: "123"
+
+    PaymentResult:
+      type: object
+      required:
+        - transaction_id
+        - payment_method
+        - amount
+        - currency
+        - status
+        - created_at
+      properties:
+        transaction_id:
+          type: string
+          description: Unique transaction identifier
+          example: "txn_abc123def456"
+        payment_method:
+          type: string
+          description: Payment method used
+          example: "credit_card"
+        amount:
+          type: number
+          format: decimal
+          description: Payment amount
+          example: 135.69
+        currency:
+          type: string
+          description: Payment currency
+          example: "USD"
+        status:
+          type: string
+          enum: [pending, authorized, captured, failed, requires_authentication]
+          description: Payment status
+          example: "captured"
+        card_last_four:
+          type: string
+          pattern: '^[0-9]{4}$'
+          description: Last four digits of card (for card payments)
+          example: "1111"
+        authorization_code:
+          type: string
+          description: Payment authorization code
+          example: "123456"
+        risk_score:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: Fraud risk score
+          example: 0.12
+        processing_time_ms:
+          type: integer
+          description: Payment processing time
+          example: 1234
+        gateway_response:
+          type: object
+          description: Raw gateway response (sanitized)
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+          description: Payment timestamp
+          example: "2024-01-25T16:45:00Z"
+
+    PaymentTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Transaction ID
+          example: "txn_abc123def456"
+        type:
+          type: string
+          enum: [authorization, capture, refund, void]
+          description: Transaction type
+          example: "capture"
+        amount:
+          type: number
+          format: decimal
+          description: Transaction amount
+          example: 135.69
+        currency:
+          type: string
+          description: Transaction currency
+          example: "USD"
+        status:
+          type: string
+          enum: [pending, completed, failed]
+          description: Transaction status
+          example: "completed"
+        gateway:
+          type: string
+          description: Payment gateway used
+          example: "stripe"
+        gateway_transaction_id:
+          type: string
+          description: Gateway's transaction ID
+          example: "ch_1234567890abcdef"
+        created_at:
+          type: string
+          format: date-time
+          description: Transaction timestamp
+          example: "2024-01-25T16:45:00Z"
+
+    OrderStatusChange:
+      type: object
+      properties:
+        from_status:
+          type: string
+          description: Previous status
+          example: "pending"
+        to_status:
+          type: string
+          description: New status
+          example: "confirmed"
+        reason:
+          type: string
+          description: Reason for status change
+          example: "Payment captured successfully"
+        changed_by:
+          type: string
+          description: User who made the change
+          example: "system"
+        changed_at:
+          type: string
+          format: date-time
+          description: When the change occurred
+          example: "2024-01-25T16:45:00Z"
+
+    OrderChange:
+      type: object
+      properties:
+        field:
+          type: string
+          description: Field that was changed
+          example: "status"
+        old_value:
+          description: Previous value
+          example: "processing"
+        new_value:
+          description: New value
+          example: "shipped"
+        timestamp:
+          type: string
+          format: date-time
+          description: When the change occurred
+          example: "2024-01-26T14:30:00Z"
+
+    PaginationInfo:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Results per page
+          example: 20
+        offset:
+          type: integer
+          description: Number of results skipped
+          example: 0
+        total:
+          type: integer
+          description: Total number of results
+          example: 2847
+        has_more:
+          type: boolean
+          description: Whether more results are available
+          example: true
+
+    OrderSummary:
+      type: object
+      properties:
+        total_orders:
+          type: integer
+          description: Total number of orders
+          example: 2847
+        total_value:
+          type: number
+          format: decimal
+          description: Total value of all orders
+          example: 156742.33
+        avg_order_value:
+          type: number
+          format: decimal
+          description: Average order value
+          example: 55.12
+        status_breakdown:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Count of orders by status
+          example:
+            pending: 45
+            confirmed: 234
+            processing: 156
+            shipped: 892
+            delivered: 1520
+
+    HealthStatus:
+      type: object
+      required:
+        - status
+        - timestamp
+        - version
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: Overall service health
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+          description: Health check timestamp
+          example: "2024-01-25T16:45:00Z"
+        version:
+          type: string
+          description: Service version
+          example: "1.3.0"
+        uptime_seconds:
+          type: integer
+          description: Service uptime in seconds
+          example: 86400
+        checks:
+          type: object
+          description: Individual health checks
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+                enum: [healthy, degraded, unhealthy]
+              response_time_ms:
+                type: integer
+              details:
+                type: string
+              error:
+                type: string
+        metrics:
+          type: object
+          description: Service metrics
+          properties:
+            orders_per_minute:
+              type: number
+              format: float
+              example: 12.5
+            average_order_value:
+              type: number
+              format: decimal
+              example: 67.89
+            payment_success_rate:
+              type: number
+              format: float
+              example: 0.97
+
+    ProblemDetails:
+      type: object
+      description: RFC 7807 Problem Details for HTTP APIs
+      required:
+        - type
+        - title
+        - status
+      properties:
+        type:
+          type: string
+          format: uri
+          description: URI reference identifying the problem type
+          example: "https://docs.bookverse.com/errors/order-not-found"
+        title:
+          type: string
+          description: Short, human-readable summary
+          example: "Order Not Found"
+        status:
+          type: integer
+          description: HTTP status code
+          example: 404
+        detail:
+          type: string
+          description: Human-readable explanation
+          example: "No order found with ID order_789abc123def"
+        instance:
+          type: string
+          format: uri
+          description: URI reference for this specific occurrence
+          example: "/orders/order_789abc123def"
+
+  responses:
+    BadRequest:
+      description: Bad Request - Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: "https://docs.bookverse.com/errors/validation-error"
+            title: "Validation Error"
+            status: 400
+            detail: "Invalid order data provided"
+            instance: "/orders"
+
+    Unauthorized:
+      description: Unauthorized - Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: "https://docs.bookverse.com/errors/unauthorized"
+            title: "Authentication Required"
+            status: 401
+            detail: "Valid authentication token required"
+            instance: "/orders"
+
+    Forbidden:
+      description: Forbidden - Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: "https://docs.bookverse.com/errors/forbidden"
+            title: "Insufficient Permissions"
+            status: 403
+            detail: "User does not have permission to perform this action"
+            instance: "/orders"
+
+    UnprocessableEntity:
+      description: Unprocessable Entity - Business logic validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: "https://docs.bookverse.com/errors/business-rule-violation"
+            title: "Business Rule Violation"
+            status: 422
+            detail: "Order total is below minimum required amount"
+            instance: "/orders"
+
+    RateLimited:
+      description: Too Many Requests - Rate limit exceeded
+      headers:
+        X-RateLimit-Limit:
+          description: Request limit per hour
+          schema:
+            type: integer
+            example: 1000
+        X-RateLimit-Remaining:
+          description: Requests remaining in current window
+          schema:
+            type: integer
+            example: 0
+        Retry-After:
+          description: Seconds to wait before retrying
+          schema:
+            type: integer
+            example: 3600
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: "https://docs.bookverse.com/errors/rate-limit-exceeded"
+            title: "Rate Limit Exceeded"
+            status: 429
+            detail: "Request rate limit exceeded"
+            instance: "/orders"
+
+    InternalServerError:
+      description: Internal Server Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: "https://docs.bookverse.com/errors/internal-server-error"
+            title: "Internal Server Error"
+            status: 500
+            detail: "An unexpected error occurred"
+            instance: "/orders"
+
+tags:
+  - name: Orders
+    description: Order management and lifecycle operations
+  - name: Payments
+    description: Payment processing and transaction management
+  - name: Health
+    description: Service health and monitoring
+
+externalDocs:
+  description: BookVerse Checkout API Documentation
+  url: https://docs.bookverse.com/api/checkout
