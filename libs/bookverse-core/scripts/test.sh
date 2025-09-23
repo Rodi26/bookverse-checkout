@@ -40,7 +40,7 @@ COVERAGE=true
 VERBOSE=false
 MARKERS=""
 
-while [[ $
+while [[ $# -gt 0 ]]; do
     case $1 in
         --unit)
             TEST_TYPE="unit"
