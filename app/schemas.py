@@ -149,7 +149,7 @@ class OrderItemRequest(BaseModel):
     class Config:
         """Pydantic configuration for enhanced behavior."""
         # Generate example values in OpenAPI documentation
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "bookId": "550e8400-e29b-41d4-a716-446655440000",
                 "qty": 2,
@@ -278,7 +278,7 @@ class CreateOrderRequest(BaseModel):
     class Config:
         """Pydantic configuration for enhanced behavior."""
         # Generate example values in OpenAPI documentation
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "userId": "550e8400-e29b-41d4-a716-446655440000",
                 "items": [
@@ -405,7 +405,7 @@ class OrderItemResponse(BaseModel):
         }
         
         # Generate example values in OpenAPI documentation
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "bookId": "550e8400-e29b-41d4-a716-446655440000",
                 "qty": 2,
@@ -596,7 +596,7 @@ class OrderResponse(BaseModel):
         }
         
         # Generate example values in OpenAPI documentation
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "orderId": "550e8400-e29b-41d4-a716-446655440000",
                 "status": "PENDING",

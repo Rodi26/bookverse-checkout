@@ -246,7 +246,8 @@ class InventoryClient:
         max_retries (int): Maximum retry attempts for failures
         base_url (str): Inventory service base URL
         _session (httpx.Client): Underlying HTTP client with pooling
-    """
+    
+    🎯 Core Integration Benefits:
         - Enable real-time stock validation and management
         - Ensure data consistency across service boundaries
     
