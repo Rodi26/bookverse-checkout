@@ -1058,9 +1058,9 @@ jobs:
       - name: "📊 Enhanced Build Summary (bookverse-devops pattern)"
         if: always()
         run: |
-          echo "
+          echo "## Build Section" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "
+          echo "## Build Section" >> $GITHUB_STEP_SUMMARY
           echo "- **Service:** checkout" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Name:** $BUILD_NAME" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Number:** $BUILD_NUMBER" >> $GITHUB_STEP_SUMMARY
@@ -1069,7 +1069,7 @@ jobs:
           echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "
+          echo "## Build Section" >> $GITHUB_STEP_SUMMARY
           echo "- **Job 1 (analyze-commit):** ✅ Completed" >> $GITHUB_STEP_SUMMARY
           echo "- **Job 2 (build-test-publish):** ✅ Completed" >> $GITHUB_STEP_SUMMARY
           if [[ "${{ needs.analyze-commit.outputs.create_app_version }}" == "true" ]]; then
@@ -1079,7 +1079,7 @@ jobs:
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "
+          echo "## Build Section" >> $GITHUB_STEP_SUMMARY
           echo "- **Test Coverage:** ${COVERAGE_PERCENT:-'N/A'}%" >> $GITHUB_STEP_SUMMARY
           echo "- **Docker Images:**" >> $GITHUB_STEP_SUMMARY
           echo "  - 📦 checkout: \`${IMAGE_NAME:-'N/A'}\`" >> $GITHUB_STEP_SUMMARY
@@ -1092,14 +1092,14 @@ jobs:
           echo "- **Build-Info:** ✅ Published with all artifacts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "
+          echo "## Build Section" >> $GITHUB_STEP_SUMMARY
           echo "- **UNASSIGNED → DEV:** ✅ SLSA Provenance + Jira Release → Smoke Tests" >> $GITHUB_STEP_SUMMARY
           echo "- **DEV → QA:** ✅ DAST Scan + API Tests" >> $GITHUB_STEP_SUMMARY
           echo "- **QA → STAGING:** ✅ IaC Scan + Pentest + Change Approval" >> $GITHUB_STEP_SUMMARY
           echo "- **STAGING → PROD:** ✅ Deployment Verification" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "
+          echo "## Build Section" >> $GITHUB_STEP_SUMMARY
           echo "- **bookverse-core:** ✅ Dependency management & testing" >> $GITHUB_STEP_SUMMARY
           echo "- **bookverse-devops:** ✅ Evidence collection & patterns" >> $GITHUB_STEP_SUMMARY
           echo "- **Consolidated Environment:** ✅ Centralized JFrog setup" >> $GITHUB_STEP_SUMMARY
@@ -1107,11 +1107,11 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [[ "${{ needs.analyze-commit.outputs.create_app_version }}" == "true" ]]; then
-            echo "
+            echo "## Final Status" >> $GITHUB_STEP_SUMMARY
             echo "Application version **${APP_VERSION:-'N/A'}** has been created and promoted to PROD." >> $GITHUB_STEP_SUMMARY
             echo "All required evidence has been attached at each promotion stage." >> $GITHUB_STEP_SUMMARY
           else
-            echo "
+            echo "## Fallback Info" >> $GITHUB_STEP_SUMMARY
             echo "This commit created build-info artifacts only (no application version)." >> $GITHUB_STEP_SUMMARY
             echo "Use manual workflow dispatch with \`force_app_version=true\` to create an application version." >> $GITHUB_STEP_SUMMARY
           fi
