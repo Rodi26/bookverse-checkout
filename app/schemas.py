@@ -571,7 +571,7 @@ class OrderResponse(BaseModel):
         default="USD",
         description="Currency code for the order total",
         example="USD",
-        regex="^[A-Z]{3}$"  # ISO 4217 currency code format
+        pattern="^[A-Z]{3}$"  # ISO 4217 currency code format
     )
     
     # Complete order contents
