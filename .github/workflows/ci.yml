@@ -182,7 +182,6 @@ jobs:
       app_version: ${{ steps.set-app-version.outputs.app_version }}
       coverage_percent: ${{ steps.test-coverage.outputs.coverage_percent }}
       jf_oidc_token: ${{ steps.extract-token.outputs.oidc_token }}
-
     steps:
       # 📥 Setup: Repository checkout for payment system source code
       # Retrieves complete checkout service codebase including
@@ -245,7 +244,7 @@ jobs:
           OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
           if [[ -n "$OIDC_TOKEN" && "$OIDC_TOKEN" != "null" ]]; then
             echo "✅ Successfully retrieved OIDC token from JFrog CLI step output (oidc-token)"
-            echo "📋 Token length: ${
+            echo "📋 Token length: ${#OIDC_TOKEN}"
           else
             echo "❌ OIDC token not available from JFrog CLI step output (oidc-token)"
             exit 1
@@ -274,7 +273,7 @@ jobs:
           fi
           
           echo "✅ OIDC token available from JFrog CLI step"
-          echo "📋 Token length: ${
+          echo "📋 Token length: ${#OIDC_TOKEN}"
           echo "📋 Using shared semver logic from bookverse-infra"
           
           INFRA_SCRIPTS_PATH="bookverse-infra/libraries/bookverse-devops/scripts"
@@ -464,12 +463,13 @@ jobs:
           verbosity: 'feedback'
 
       - name: "[Build] API image"
+        env:
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+          JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
         run: |
           set -euo pipefail
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID" || true
-          export JF_PROJECT="${{ vars.PROJECT_KEY }}"
-          export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
 
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
           IMAGE_NAME="${{ vars.DOCKER_REGISTRY }}/$REPO_KEY/$SERVICE_NAME:$IMAGE_TAG"
@@ -569,12 +569,13 @@ jobs:
           echo "✅ Contract package evidence attached: config-bundle"
 
       - name: "[Build] Worker image"
+        env:
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+          JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
         run: |
           set -euo pipefail
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID" || true
-          export JF_PROJECT="${{ vars.PROJECT_KEY }}"
-          export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
 
           WORKER_NAME="$SERVICE_NAME-worker"
           WORKER_TAG="$IMAGE_TAG"
@@ -611,12 +612,13 @@ jobs:
           echo "✅ Worker image package evidence attached: pytest-results, sast-scan"
 
       - name: "[Build] Migrations image"
+        env:
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+          JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
         run: |
           set -euo pipefail
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID" || true
-          export JF_PROJECT="${{ vars.PROJECT_KEY }}"
-          export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
 
           MIGR_NAME="$SERVICE_NAME-migrations"
           MIGR_TAG="$IMAGE_TAG"
@@ -763,7 +765,7 @@ jobs:
           PROMOTION_OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
           if [[ -n "$PROMOTION_OIDC_TOKEN" && "$PROMOTION_OIDC_TOKEN" != "null" ]]; then
             echo "✅ Successfully retrieved OIDC token from JFrog CLI step output (oidc-token)"
-            echo "📋 Token length: ${
+            echo "📋 Token length: ${#OIDC_TOKEN}"
             echo "promotion_oidc_token=$PROMOTION_OIDC_TOKEN" >> $GITHUB_OUTPUT
             echo "JF_OIDC_TOKEN=$PROMOTION_OIDC_TOKEN" >> $GITHUB_ENV
           else
@@ -819,7 +821,7 @@ jobs:
           APP_KEY="$APPLICATION_KEY"
           
           TAG_OPTIONS=(release hotfix feature bugfix enhancement security performance refactor)
-          TAG_INDEX=$((${GITHUB_RUN_NUMBER:-0} % ${
+          TAG_INDEX=$((${GITHUB_RUN_NUMBER:-0} % ${#TAG_OPTIONS[@]}))
           APP_TAG="${TAG_OPTIONS[$TAG_INDEX]}"
           
           ACTUAL_BUILD_NAME="${{ needs.build-test-publish.outputs.build_name }}"
@@ -993,6 +995,10 @@ jobs:
           echo "🎉 SUCCESS: Application version $APP_VERSION promoted to PROD with all evidence attached!"
 
       - name: "[Tags] Self-Healing Tag Management"
+        env:
+          JFROG_URL: ${{ vars.JFROG_URL }}
+          PROJECT_KEY: ${{ vars.PROJECT_KEY }}
+          APPLICATION_KEY: ${{ env.APPLICATION_KEY }}
         run: |
           set -euo pipefail
           echo "🏥 Running self-healing tag management for PROD release"
@@ -1003,10 +1009,6 @@ jobs:
           fi
           
           echo "✅ PROD release successful, running comprehensive tag validation and healing"
-          
-          export JFROG_URL='${{ vars.JFROG_URL }}'
-          export PROJECT_KEY='${{ vars.PROJECT_KEY }}'
-          export APPLICATION_KEY="$APPLICATION_KEY"
           
           source bookverse-infra/libraries/bookverse-devops/scripts/tag-management-lib.sh
           
