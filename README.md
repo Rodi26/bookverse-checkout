@@ -1,104 +1,76 @@
 # BookVerse Checkout Service
 
-Minimal FastAPI service for BookVerse. Implements idempotent order creation,
-stock validation against `bookverse-inventory`, and outbox pattern for
-`order.created` domain events.
+Demo-ready FastAPI microservice for the BookVerse platform, showcasing JFrog AppTrust capabilities with complex multi-container application patterns.
 
-## Testing Status
-- Testing automatic CI triggers with 3 Docker images (API, Worker, Migrations)
-- Validating commit filtering, application version creation, and auto-promotion
+## 🎯 Demo Purpose & Patterns
 
-## Local run
+This service demonstrates the **Multi-Container Application Pattern** - showcasing how complex applications with multiple runtime components can be managed as a single application version in AppTrust.
 
-```bash
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+### 📦 **Multi-Container Application Pattern**
+- **What it demonstrates**: Application versions built from multiple Docker containers (main service + worker + database migrations)
+- **AppTrust benefit**: Complex applications with multiple containers promoted together through all stages (DEV → QA → STAGING → PROD)
+- **Real-world applicability**: Enterprise applications with background workers, database migrations, and auxiliary services
+
+This service is **intentionally complex** - it demonstrates real-world patterns where applications need multiple runtime components working together.
+
+## 🏗️ Checkout Service Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  BookVerse Platform                         │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────────┐                      ┌─────────────┐       │
+│  │     Web     │                      │  Inventory  │       │
+│  │  Frontend   │                      │   Service   │       │
+│  └─────────────┘                      └─────────────┘       │
+│         │                                    │               │
+│         │            ┌───────────────┐      │               │
+│         └────────────│   Checkout    │──────┘               │
+│                      │    Service    │                      │
+│                      │               │                      │
+│                      │ Multi-Container │                    │
+│                      │  Application   │                     │
+│                      │ ┌─────────────┐ │                    │
+│                      │ │    API      │ │                    │
+│                      │ │   Service   │ │                    │
+│                      │ └─────────────┘ │                    │
+│                      │ ┌─────────────┐ │                    │
+│                      │ │  Background │ │                    │
+│                      │ │   Worker    │ │                    │
+│                      │ └─────────────┘ │                    │
+│                      │ ┌─────────────┐ │                    │
+│                      │ │   Payment   │ │                    │
+│                      │ │    Mock     │ │                    │
+│                      │ └─────────────┘ │                    │
+│                      └───────────────┘                      │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+
+AppTrust Promotion Pipeline:
+DEV → QA → STAGING → PROD
+ │     │       │        │
+ └─────┴───────┴────────┘
+   Multiple Container Images
+   Move Together as One Version
 ```
 
-## Docker
+## 🔧 JFrog AppTrust Integration
 
-```bash
-docker build -t bookverse-checkout:dev .
-docker run -p 8000:8000 bookverse-checkout:dev
-```
+This service creates multiple artifacts per application version:
 
-## API
+1. **Multiple Docker Images** - API service, background worker, payment mock, database migrations
+2. **Python Packages** - Shared libraries and service packages
+3. **SBOMs** - Software Bill of Materials for all container images
+4. **Test Reports** - E2E testing across all components
+5. **Build Evidence** - Comprehensive build and security attestations
 
-- POST `/orders` — create order (supports `Idempotency-Key` header)
-- GET `/orders/{order_id}` — fetch order by id
+Each artifact moves together through the promotion pipeline: DEV → QA → STAGING → PROD.
 
-## CI/CD
+For the non-JFrog evidence plan and gates, see: `../bookverse-demo-init/docs/EVIDENCE_PLAN.md`.
 
-This repository includes a GitHub Actions workflow at `.github/workflows/ci.yml` that:
+## 🔄 Workflows
 
-- Runs tests with coverage
-- Builds and pushes one API image plus worker/migrations images
-- Publishes Build Info and uploads OpenAPI and contract artifacts
-- Creates an AppTrust application version with build sources
-- Attaches coverage/SAST/quality/license evidence
-
-### Required repository variables (Settings → Variables → Repository variables)
-
-- `PROJECT_KEY`: `bookverse`
-- `DOCKER_REGISTRY`: e.g., `releases.jfrog.io` (or your Artifactory Docker registry host)
-- `JFROG_URL`: e.g., `https://releases.jfrog.io`
-- `EVIDENCE_KEY_ALIAS`: alias for evidence signing key (non-secret)
-
-### Required repository secrets (Settings → Secrets and variables → Actions)
-
-- `EVIDENCE_PRIVATE_KEY`: Private key PEM for evidence signing (mandatory)
-
-**Note**: No JFrog admin tokens required - all authentication uses OIDC.
-
-### OIDC configuration
-
-- JFrog OIDC provider name used by workflow: `github-bookverse-checkout`
-- Audience: `jfrog-github`
-- **All JFrog API authentication is handled via OIDC** - no admin tokens required
-- Ensure identity mapping enables this repo's workflow OIDC to access the JFrog instance
-
-### Image naming
-
-- `${JFROG_URL}/artifactory/${PROJECT_KEY}-checkout-internal-docker-nonprod-local/checkout:<semver>`
-
-### Mandatory OIDC application binding (.jfrog/config.yml)
-
-This repository must include a committed, non-sensitive `.jfrog/config.yml` declaring the AppTrust application key. This is mandatory for package binding.
-
-- During an OIDC-authenticated CI session, JFrog CLI reads the key so packages uploaded by the workflow are automatically bound to the correct AppTrust application.
-- Contains no secrets and must be versioned. If the key changes, commit the update.
-
-Path: `bookverse-checkout/.jfrog/config.yml`
-
-Example:
-
-```yaml
-application:
-  key: "bookverse-checkout"
-```
-
-### Running the workflow
-
-- Manual trigger: Actions → CI → Run workflow
-- Later, enable push/PR triggers when ready
-
-## Workflows
-
-- [`ci.yml`](.github/workflows/ci.yml) — CI for the checkout service: tests, multi-image build, publish artifacts/build-info, AppTrust version and evidence.
-- [`promote.yml`](.github/workflows/promote.yml) — Promote the checkout application version through stages with evidence.
-- [`promotion-rollback.yml`](.github/workflows/promotion-rollback.yml) — Roll back a promoted checkout application version (demo utility).
-# Test comment for tag management validation - Sat Sep 20 20:13:08 IDT 2025
-# Test fixed tag management library - Sat Sep 20 20:20:56 IDT 2025
-# Debug test for tag management - Sat Sep 20 20:32:58 IDT 2025
-# CRITICAL FIX TEST: Tag management should now work - Sat Sep 20 20:38:23 IDT 2025
-# FINAL FIX TEST: Tag management should now work correctly - Sat Sep 20 20:41:57 IDT 2025
-# CRITICAL TEMP FILE FIX: This should finally work - Sat Sep 20 20:45:38 IDT 2025
-# STEP 1 TEST: Minimal tag management baseline - Sat Sep 20 20:53:06 IDT 2025
-# STEP 2 TEST: API connectivity test - Sat Sep 20 20:57:54 IDT 2025
-# STEP 3 TEST: Latest candidate identification - Sat Sep 20 21:01:56 IDT 2025
-# STEP 4 TEST: Complete tag management system - Sat Sep 20 21:08:04 IDT 2025
-# STEP 4 FIX TEST: Corrected API endpoints - Sat Sep 20 21:12:49 IDT 2025
-# STEP 4 DEBUG TEST: Debug info and timing - Sat Sep 20 21:17:42 IDT 2025
-# STEP 4 REAL DEBUG TEST: With actual debug code - Sat Sep 20 21:22:20 IDT 2025
-# FINAL TEST: Complete self-healing tag management system - Sat Sep 20 21:27:16 IDT 2025
-# TEST 1: Checkout Service self-healing test - Sat Sep 20 21:57:39 IDT 2025
+- [`ci.yml`](.github/workflows/ci.yml) — CI: tests, multi-container builds, publish artifacts/build-info, AppTrust version and evidence
+- [`promote.yml`](.github/workflows/promote.yml) — Promote the checkout app version through stages with evidence
+- [`promotion-rollback.yml`](.github/workflows/promotion-rollback.yml) — Roll back a promoted checkout application version (demo utility)
