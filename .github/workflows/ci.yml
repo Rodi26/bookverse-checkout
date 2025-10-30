@@ -382,7 +382,7 @@ jobs:
           
           # 📚 Core library: Install BookVerse core shared library
           # Contains common payment utilities and financial transaction patterns
-          pip install --no-cache-dir ./libs/bookverse-core
+          pip install --no-cache-dir "./libs/bookverse-core[dev]"
           echo "✅ Installed bookverse-core from local libs"
           
           echo "📦 Installing dependencies using explicit package list to avoid build-info issues..."
