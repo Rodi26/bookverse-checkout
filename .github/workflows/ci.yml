@@ -131,7 +131,7 @@ jobs:
       - name: "[Setup] Checkout bookverse-infra for shared scripts"
         uses: actions/checkout@v4
         with:
-          repository: yonatanp-jfrog/bookverse-infra
+          repository: Rodi26/bookverse-infra
           path: bookverse-infra
 
       # 🧠 Analysis: Payment-optimized commit analysis for deployment decisions
@@ -195,7 +195,7 @@ jobs:
       - name: "[Setup] Checkout bookverse-infra for shared scripts"
         uses: actions/checkout@v4
         with:
-          repository: yonatanp-jfrog/bookverse-infra
+          repository: Rodi26/bookverse-infra
           path: bookverse-infra
 
 
@@ -456,7 +456,7 @@ jobs:
           echo "coverage_percent=$COV" >> $GITHUB_OUTPUT
 
       - name: "[Build] Docker Registry Authentication"
-        uses: yonatanp-jfrog/bookverse-infra/.github/actions/docker-registry-auth@main
+        uses: Rodi26/bookverse-infra/.github/actions/docker-registry-auth@main
         with:
           oidc-token: ${{ steps.jfrog-cli-auth.outputs.oidc-token }}
           registry-url: ${{ vars.JFROG_URL }}
@@ -777,7 +777,7 @@ jobs:
       - name: "[Setup] Checkout bookverse-infra for shared scripts"
         uses: actions/checkout@v4
         with:
-          repository: yonatanp-jfrog/bookverse-infra
+          repository: Rodi26/bookverse-infra
           path: bookverse-infra
 
       - name: "[Setup] JFrog CLI"
